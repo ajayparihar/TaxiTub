@@ -1,0 +1,15 @@
+User-agent: *
+Allow: /
+
+# TaxiTub - Airport Taxi Queue Management System
+# Sitemap location (if added later)
+# Sitemap: https://yourdomain.com/sitemap.xml
+
+# Allow search engines to index the passenger booking interface
+Allow: /passenger
+
+# Allow indexing of general information
+Allow: /
+
+# Note: Admin and QueuePal interfaces should be restricted in production
+# via authentication, not robots.txt

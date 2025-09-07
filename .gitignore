@@ -1,0 +1,286 @@
+# ================================
+# TaxiTub - Delhi Cabs .gitignore
+# ================================
+# React + TypeScript + Vite + Supabase Project
+# Last Updated: $(date +%Y-%m-%d)
+
+# ================================
+# BUILD OUTPUTS & DISTRIBUTION
+# ================================
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# ================================
+# NODE.JS & PACKAGE MANAGERS
+# ================================
+# Dependencies
+node_modules/
+jspm_packages/
+
+# Package lock files (keep package-lock.json for consistency)
+yarn.lock
+pnpm-lock.yaml
+.pnpm/
+
+# Yarn v2+
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pnp.*
+
+# ================================
+# ENVIRONMENT & CONFIGURATION
+# ================================
+# Environment variables (keep .env.example)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*.local
+
+# Local configuration overrides
+.vscode/settings.json
+.vscode/launch.json
+.vscode/extensions.json
+
+# ================================
+# DEVELOPMENT & BUILD TOOLS
+# ================================
+# TypeScript
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+
+# Vite
+.vite/
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# ESLint
+.eslintcache
+
+# Prettier
+.prettierignore
+
+# Jest
+.jest-cache/
+jest.config.js
+
+# Storybook
+.out/
+storybook-static/
+
+# ================================
+# TESTING & COVERAGE
+# ================================
+# Test coverage
+coverage/
+*.lcov
+.nyc_output/
+
+# Test results
+junit.xml
+test-results/
+
+# ================================
+# LOGS & DEBUGGING
+# ================================
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Diagnostic reports
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# ================================
+# CACHE DIRECTORIES
+# ================================
+# General cache
+.cache/
+.temp/
+.tmp/
+
+# Node cache
+node_modules/.cache/
+
+# Vite cache
+node_modules/.vite/
+
+# Turbo
+.turbo/
+
+# Next.js (if ever needed)
+.next/
+
+# ================================
+# OPERATING SYSTEM
+# ================================
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Icon?
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# ================================
+# IDE & EDITORS
+# ================================
+# Visual Studio Code
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+# IntelliJ IDEA
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Atom
+.atom/
+
+# Vim
+*.swp
+*.swo
+*~
+.netrwhist
+
+# Emacs
+*~
+#*
+.#*
+
+# ================================
+# DATABASE & SERVICES
+# ================================
+# Local database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Supabase local development
+.supabase/
+supabase/migrations/
+supabase/seed.sql
+
+# ================================
+# TEMPORARY & BACKUP FILES
+# ================================
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+*.orig
+*.rej
+
+# Archives
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip
+
+# ================================
+# SECURITY & SECRETS
+# ================================
+# Certificates
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# API keys and secrets
+secrets/
+.secrets
+auth.json
+credentials.json
+
+# ================================
+# DEPLOYMENT & CI/CD
+# ================================
+# Deployment artifacts
+.deploy/
+.serverless/
+.netlify/
+.vercel
+
+# Docker
+.dockerignore
+Dockerfile.prod
+
+# ================================
+# PROJECT SPECIFIC
+# ================================
+# Documentation builds
+docs/build/
+
+# Generated files
+src/**/*.generated.*
+
+# Mock data (keep example files)
+**/mock-data/*.json
+!**/mock-data/example.json
+
+# Analytics and monitoring
+.sentryclirc
+
+# ================================
+# MISC
+# ================================
+# Runtime configuration
+.runtime
+
+# Lock files for tools
+.tool-versions
+.nvmrc.local

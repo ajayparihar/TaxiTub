@@ -1,0 +1,95 @@
+{
+  // TaxiTub TypeScript Configuration
+  // Optimized for React 18 + TypeScript development with strict type checking
+  // Supports modern ES features and comprehensive path mapping for clean imports
+  "compilerOptions": {
+    // Compilation Target Configuration
+    "target": "ES2020",                    // Target modern browsers with ES2020 support
+    "useDefineForClassFields": true,       // Use modern class field semantics (TC39 standard)
+    "lib": ["ES2020", "DOM", "DOM.Iterable"], // Include necessary type libraries
+    "module": "ESNext",                    // Use latest module system for tree-shaking
+    "skipLibCheck": true,                  // Skip type checking of declaration files for faster builds
+    
+    // Module Resolution Strategy
+    "moduleResolution": "bundler",          // Use bundler-aware resolution (Vite compatible)
+    "allowImportingTsExtensions": true,    // Allow importing .ts/.tsx files with extensions
+    "resolveJsonModule": true,             // Enable JSON imports for configuration files
+    "isolatedModules": true,               // Ensure each file can be safely transpiled alone
+    "noEmit": true,                        // Don't emit JS files (Vite handles compilation)
+    
+    // React JSX Configuration
+    "jsx": "react-jsx",                    // Use React 17+ JSX transform (no React import needed)
+    
+    // Strict Type Checking Options (Maximum Type Safety)
+    "strict": true,                        // Enable all strict type checking options
+    "noUnusedLocals": true,                // Error on unused local variables
+    "noUnusedParameters": true,            // Error on unused function parameters
+    "noFallthroughCasesInSwitch": true,    // Prevent fallthrough in switch statements
+    "exactOptionalPropertyTypes": true,    // Distinguish between undefined and missing properties
+    "noImplicitReturns": true,             // Error when not all code paths return a value
+    "noPropertyAccessFromIndexSignature": true, // Require bracket notation for index signature access
+    "noUncheckedIndexedAccess": true,      // Add undefined to index signature results
+    
+    // Module Resolution & Compatibility
+    "allowJs": true,                       // Allow JavaScript files in TypeScript project
+    "esModuleInterop": true,               // Enable interoperability between CommonJS and ES modules
+    "allowSyntheticDefaultImports": true,  // Allow default imports from modules without default export
+    "forceConsistentCasingInFileNames": true, // Ensure consistent file name casing
+    
+    // Path Mapping for Clean Imports (eliminates ../../../ patterns)
+    "baseUrl": ".",                        // Base directory for resolving non-relative module names
+    "paths": {
+      "@/*": ["src/*"],                    // Root src alias
+      "@/components/*": ["src/components/*"], // Direct component imports
+      "@/pages/*": ["src/pages/*"],       // Page component imports
+      "@/services/*": ["src/services/*"], // API service imports
+      "@/types/*": ["src/types/*"],       // Type definition imports
+      "@/config/*": ["src/config/*"],     // Configuration file imports
+      "@/utils/*": ["src/utils/*"],       // Utility function imports
+      "@/hooks/*": ["src/hooks/*"],       // Custom React hooks imports
+      "@/constants/*": ["src/constants/*"] // Constant value imports
+    },
+    
+    // Additional Strict Checking (Redundant with "strict": true, but explicit for clarity)
+    "noImplicitAny": true,                 // Error on expressions with implied 'any' type
+    "strictNullChecks": true,              // Enable strict null checking
+    "strictFunctionTypes": true,           // Enable strict checking of function types
+    "strictBindCallApply": true,           // Enable strict 'bind', 'call', and 'apply' methods
+    "strictPropertyInitialization": true,  // Ensure class properties are initialized
+    "noImplicitThis": true,                // Error on 'this' expressions with implied 'any' type
+    "alwaysStrict": true,                  // Parse in strict mode and emit "use strict"
+    
+    // Performance & Development Experience
+    "incremental": true,                   // Enable incremental compilation for faster rebuilds
+    "declaration": false,                  // Don't generate .d.ts files (not needed for app)
+    "sourceMap": true,                     // Generate source maps for debugging
+    "removeComments": false                // Keep comments in development for better debugging
+  },
+  
+  // File Inclusion Patterns
+  "include": [
+    "src/**/*",                           // Include all source files
+    "src/**/*.tsx",                       // Include React component files
+    "src/**/*.ts"                         // Include TypeScript files
+  ],
+  
+  // File Exclusion Patterns (Performance Optimization)
+  "exclude": [
+    "node_modules",                       // Exclude third-party dependencies
+    "dist",                               // Exclude build output directory
+    "build",                              // Exclude alternative build directory
+    "coverage",                           // Exclude test coverage reports
+    "**/*.test.ts",                       // Exclude test files (handled by Jest)
+    "**/*.test.tsx",                      // Exclude React component tests
+    "**/*.spec.ts",                       // Exclude spec files
+    "**/*.spec.tsx",                      // Exclude React spec files
+    "**/*.d.ts",                          // Exclude declaration files
+    "**/node_modules/**",                 // Exclude nested node_modules
+    "**/.git/**"                          // Exclude Git metadata
+  ],
+  
+  // Project References (enables multi-project builds)
+  "references": [
+    { "path": "./tsconfig.node.json" }    // Reference to Node.js-specific config
+  ]
+}

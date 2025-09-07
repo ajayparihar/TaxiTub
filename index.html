@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Favicon -->
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/android-chrome-192x192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/android-chrome-512x512.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="TaxiTub - Airport Taxi Queue Management System with FIFO fairness" />
+    <meta name="keywords" content="taxi, airport, queue management, FIFO, booking" />
+    <meta name="author" content="TaxiTub Team" />
+    
+    <!-- Open Graph Meta Tags -->
+    <meta property="og:title" content="TaxiTub - Airport Taxi Management" />
+    <meta property="og:description" content="Efficient FIFO-based airport taxi queue management system" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="/android-chrome-512x512.png" />
+    
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#F47C24" />
+    <meta name="application-name" content="TaxiTub" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="TaxiTub" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    
+    <title>TaxiTub</title>
+    
+    <!-- Preload critical resources -->
+    
+    <!-- Minimal, theme-aligned loading screen styles -->
+    <style>
+      /* Inline theme tokens (keep in sync with src/index.css) */
+      :root {
+        --tt-bg: #FAF9F6;          /* light bg */
+        --tt-text-strong: #333333; /* headings */
+        --tt-text-body: #666666;   /* body */
+        --tt-primary: #F47C24;     /* brand */
+        --tt-ring-track: rgba(0,0,0,0.08);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --tt-bg: #0A0A0A;
+          --tt-text-strong: #EDEDED;
+          --tt-text-body: #B0B0B0;
+          --tt-ring-track: rgba(255,255,255,0.14);
+        }
+      }
+
+      /* Container */
+      #splash {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: var(--tt-bg);
+        z-index: 9999;
+        color: var(--tt-text-strong);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', Arial, sans-serif;
+        transition: opacity 220ms ease;
+      }
+      .app-loaded #splash { opacity: 0; pointer-events: none; }
+
+      /* Ring with logo inside */
+      .ring {
+        position: relative;
+        width: 72px;
+        height: 72px;
+        display: grid;
+        place-items: center;
+      }
+      .ring::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        background: conic-gradient(var(--tt-primary) 12%, var(--tt-ring-track) 0);
+        -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 6px), #000 0);
+                mask: radial-gradient(farthest-side, transparent calc(100% - 6px), #000 0);
+        animation: spin 0.9s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) { .ring::before { animation: none; } }
+
+      .logo {
+        width: 44px;
+        height: 44px;
+        object-fit: contain;
+        border-radius: 10px; /* soften square icons */
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Loading Screen -->
+    <div id="splash" role="status" aria-live="polite">
+      <div class="ring" aria-label="Loading">
+        <img src="/android-chrome-192x192.png" alt="TaxiTub logo" class="logo" width="44" height="44" />
+      </div>
+    </div>
+
+    <!-- React App Root -->
+    <div id="root"></div>
+    
+    <!-- Remove loading screen when app loads -->
+    <script>
+      // Fade out the splash once everything is ready
+      window.addEventListener('load', function () {
+        // Short delay to avoid flicker between splash and app mount
+        setTimeout(function () {
+          document.documentElement.classList.add('app-loaded');
+        }, 250);
+      });
+      // Safety: force-hide after 5s in case of errors
+      setTimeout(function () {
+        document.documentElement.classList.add('app-loaded');
+      }, 5000);
+    </script>
+    
+    <!-- Service Worker Registration disabled for development -->
+    <!-- 
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('/sw.js')
+            .then(function(registration) {
+              console.log('SW registered: ', registration);
+            })
+            .catch(function(registrationError) {
+              console.log('SW registration failed: ', registrationError);
+            });
+        });
+      }
+    </script>
+    -->
+    
+    <script type="module" src="/src/index.tsx"></script>
+  </body>
+</html>
