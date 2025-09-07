@@ -29,6 +29,9 @@ export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   
   const config: UserConfig = {
+    // Set base path for GitHub Pages deployment
+    base: mode === 'production' ? '/Delhi-Cabs/' : '/',
+    
     // Vitest configuration for unit tests
     test: {
       globals: true,
