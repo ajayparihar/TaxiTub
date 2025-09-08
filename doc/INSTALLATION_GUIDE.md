@@ -145,10 +145,10 @@ git --version
 
 ```bash
 # Clone from your repository (replace with actual URL)
-git clone https://github.com/your-username/taxitub.git
+git clone https://github.com/your-username/Delhi-Cabs.git
 
 # Navigate to project directory
-cd taxitub
+cd Delhi-Cabs
 
 # Check current branch
 git branch
@@ -247,7 +247,7 @@ CREATE TABLE carinfo (
   driverName TEXT NOT NULL,
   driverPhone TEXT NOT NULL,
   carModel TEXT NOT NULL,
-  seater INTEGER NOT NULL CHECK (seater IN (4, 6, 7)),
+  seater INTEGER NOT NULL CHECK (seater IN (4, 5, 6, 7, 8)),
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
@@ -257,7 +257,7 @@ CREATE TABLE carinfo (
 CREATE TABLE queue (
   queueId UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   carId UUID REFERENCES carinfo(carId) ON DELETE CASCADE,
-  seater INTEGER NOT NULL CHECK (seater IN (4, 6, 7)),
+  seater INTEGER NOT NULL CHECK (seater IN (4, 5, 6, 7, 8)),
   position INTEGER NOT NULL,
   timestampAdded TIMESTAMP DEFAULT NOW()
 );
@@ -319,12 +319,12 @@ CREATE POLICY "Allow all operations on queuepal" ON queuepal USING (true) WITH C
 # Start development server
 npm run dev
 
-# The server will start on http://localhost:5173
+# The server will start on http://localhost:3000
 # Hot reload is enabled - changes will update automatically
 ```
 
 #### Verify Installation
-1. Open your browser and navigate to `http://localhost:5173`
+1. Open your browser and navigate to `http://localhost:3000`
 2. You should see the TaxiTub application
 3. Check the browser console for any errors
 4. Try navigating between different sections:

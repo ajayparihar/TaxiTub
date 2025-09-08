@@ -36,20 +36,25 @@ interface CarInfo {
   driverName: string;      // Driver's full name
   driverPhone: string;     // Contact number
   carModel: string;        // Vehicle model
-  seater: 4 | 6 | 7;      // Passenger capacity
-  is_active?: boolean;     // Active status (optional)
+  seater: 4 | 5 | 6 | 7 | 8;  // Passenger capacity (1-8 supported)
+  isActive?: boolean;      // Active status (optional)
+  created_at?: string;     // Creation timestamp
+  updated_at?: string;     // Last update timestamp
 }
 ```
 
-### Queue
+### Queue (Individual Tables)
 ```typescript
 interface Queue {
   queueId: string;         // UUID primary key
   carId: string;           // Foreign key to CarInfo
-  seater: 4 | 6 | 7;      // Queue category
-  position: number;        // FIFO position
+  seater: 4 | 5 | 6 | 7 | 8;  // Queue category (separate table per seater)
+  position: number;        // FIFO position (unique within table)
   timestampAdded: string;  // ISO timestamp
 }
+
+// Individual queue tables:
+// - queue_4seater, queue_5seater, queue_6seater, queue_7seater, queue_8seater
 ```
 
 ### Trip
@@ -59,7 +64,7 @@ interface Trip {
   carId: string;           // Foreign key to CarInfo
   passengerName: string;   // Passenger name
   destination: string;     // Destination address
-  passengerCount: number;  // Number of passengers
+  passengerCount: number;  // Number of passengers (1-8)
   status: 'Assigned' | 'Completed';
   timestamp: string;       // ISO timestamp
 }
@@ -273,17 +278,21 @@ Adds a car to the appropriate queue with FIFO positioning.
 #### `getQueueBySeater(seater: 4 | 6 | 7)`
 Retrieves queue for specific seater type with car details.
 
-#### `assignCarToPassenger(passengerDetails)`
-Main booking logic that assigns cars to passengers.
+#### `assignTaxi(passengerCount, destination?)`
+Optimized booking logic with smart allocation algorithm.
 
-**Logic:**
-1. Validates passenger count (1-8)
-2. Determines minimum seater requirement
-3. Finds available queue (4-seat, 6-seat, or 7-seat)
-4. Assigns first car in suitable queue
-5. Creates trip record
-6. Removes car from queue
-7. Returns complete assignment details
+**Optimized Allocation Logic:**
+1. **Validation**: Passenger count (1-8)
+2. **Priority Determination**: 
+   - 1-4 passengers: Try 4→5→6→7→8-seater
+   - 5 passengers: Try 5→6→7→8-seater  
+   - 6 passengers: Try 6→7→8-seater
+   - 7 passengers: Try 7→8-seater
+   - 8 passengers: Only 8-seater
+3. **FIFO Assignment**: First car from first available queue
+4. **Queue Update**: Remove assigned car, fix positions
+5. **Trip Tracking**: Optional trip record creation
+6. **Response**: Complete car details with efficiency metrics
 
 ### Error Handling
 
