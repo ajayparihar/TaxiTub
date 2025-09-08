@@ -30,7 +30,7 @@ export default defineConfig(({ command, mode }) => {
   
   const config: UserConfig = {
     // Set base path for GitHub Pages deployment
-    base: mode === 'production' ? '/Delhi-Cabs/' : '/',
+    base: mode === 'production' ? '/TaxiTub/' : '/',
     
     // Vitest configuration for unit tests
     test: {
