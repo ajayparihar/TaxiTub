@@ -175,10 +175,13 @@ const AppContent: React.FC<{
       <SkipLink href="#main-content">Skip to main content</SkipLink>
           
           {/* React Router Configuration with Future Flags */}
-          <Router future={{ 
-            v7_startTransition: true,     // Enable React 18 concurrent features
-            v7_relativeSplatPath: true    // Improve relative path handling
-          }}>
+          <Router 
+            basename={import.meta.env.PROD ? '/TaxiTub' : ''}
+            future={{ 
+              v7_startTransition: true,     // Enable React 18 concurrent features
+              v7_relativeSplatPath: true    // Improve relative path handling
+            }}
+          >
             {/* Main Application Layout */}
             <Box display="flex" flexDirection="column" minHeight="100vh">
               {/* Navigation Header */}
