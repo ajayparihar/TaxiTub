@@ -564,8 +564,31 @@ export class QueueService {
   }
 
   /**
-   * Inserts a queue entry with up to 3 retries, incrementing position on unique constraint collisions.
-   * Preserves original error messaging.
+   * Inserts Queue Entry with Concurrent Collision Handling
+   * 
+   * This method implements a robust queue insertion algorithm that handles race conditions
+   * when multiple cars are simultaneously added to the same queue position. It uses a retry
+   * mechanism with position increment to resolve PostgreSQL unique constraint violations.
+   * 
+   * **Algorithm Details:**
+   * - Attempt insertion at calculated position
+   * - On position collision (23505 error), increment position and retry
+   * - Maximum of 3 attempts to prevent infinite loops
+   * - Maintains FIFO integrity by using consecutive positions
+   * 
+   * **Concurrency Handling:**
+   * This handles the race condition where:
+   * 1. Car A calculates next position as 5
+   * 2. Car B also calculates next position as 5 (before Car A inserts)
+   * 3. Car A inserts at position 5 successfully
+   * 4. Car B attempts position 5, gets constraint violation
+   * 5. Car B retries at position 6, succeeds
+   * 
+   * @param tableName - Target seater-specific queue table (e.g., "queue_4seater")
+   * @param carId - Unique identifier of car to add to queue
+   * @param basePosition - Initial position calculated from queue state
+   * @returns Promise with success data or structured error response
+   * @throws Never throws - all errors are captured and returned as ApiResponse
    */
   private static async insertQueueEntryWithRetries(
     tableName: string,
@@ -573,15 +596,23 @@ export class QueueService {
     basePosition: number
   ): Promise<{ ok: true; data: any } | { ok: false; response: ApiResponse<never> }> {
     let insertAttempts = 0;
+    const maxRetries = 3; // Limit retries to prevent infinite loops
 
-    while (insertAttempts < 3) {
+    // Retry loop to handle concurrent insertions at the same position
+    while (insertAttempts < maxRetries) {
+      // Calculate position for this attempt (base + retry count)
+      // This ensures that if position N is taken, we try N+1, then N+2, etc.
+      const attemptPosition = basePosition + insertAttempts;
+      
+      logger.log(`🔄 Queue insertion attempt ${insertAttempts + 1}/${maxRetries} at position ${attemptPosition}`);
+      
       const { data: insertData, error } = await supabase
         .from(tableName)
         .insert([
           {
             carid: carId,
-            position: basePosition + insertAttempts, // same collision handling
-            timestampadded: new Date().toISOString(),
+            position: attemptPosition, // Incremented position for collision resolution
+            timestampadded: new Date().toISOString(), // Timestamp for audit trail
           },
         ])
         .select(
@@ -589,17 +620,23 @@ export class QueueService {
         )
         .single();
 
+      // Success case - car successfully added to queue
       if (!error) {
+        logger.log(`✅ Car ${carId} successfully queued at position ${attemptPosition}`);
         return { ok: true, data: insertData };
       }
 
-      // Handle PostgreSQL unique constraint violation on position (concurrent inserts)
+      // Handle PostgreSQL unique constraint violation on position
+      // Error code 23505 indicates unique_violation in PostgreSQL
       if (error.code === "23505" && error.message.includes("position")) {
+        logger.log(`⚠️ Position collision at ${attemptPosition}, retrying with incremented position`);
         insertAttempts++;
-        continue; // Retry with incremented position
+        continue; // Retry with next available position
       }
 
-      // For non-position related errors, fail immediately
+      // For non-position related errors (e.g., network, auth, schema issues), fail immediately
+      // These errors won't be resolved by retrying with different positions
+      logger.error(`❌ Non-recoverable insertion error:`, error);
       return {
         ok: false,
         response: {
@@ -610,6 +647,9 @@ export class QueueService {
       };
     }
 
+    // All retry attempts exhausted - this indicates severe queue congestion
+    // or a system issue that prevented successful insertion
+    logger.error(`❌ Queue insertion failed after ${maxRetries} attempts for car ${carId}`);
     return {
       ok: false,
       response: {
@@ -621,24 +661,71 @@ export class QueueService {
   }
 
   /**
-   * Adds a car to the appropriate queue based on its seater capacity
-   * Implements FIFO (First In, First Out) queue logic
-   * @param request - Contains the carId to add to queue
-   * @returns Promise resolving to the created queue entry
+   * Add Car to Queue - Core FIFO Queue Management Function
+   * 
+   * Adds a taxi to the appropriate seater-specific queue while maintaining strict FIFO ordering.
+   * This is the primary entry point for QueuePal users to register taxis for passenger pickup.
+   * 
+   * **Business Logic Flow:**
+   * 1. **Validation**: Verify car exists in system and is not suspended
+   * 2. **Queue Resolution**: Determine correct seater-specific queue table
+   * 3. **Duplicate Prevention**: Ensure car isn't already queued
+   * 4. **Position Calculation**: Determine next FIFO position
+   * 5. **Concurrent Insertion**: Add car with collision handling
+   * 
+   * **Queue Table Structure:**
+   * - Each seater capacity has dedicated table (queue_4seater, queue_5seater, etc.)
+   * - Positions are consecutive integers starting from 1
+   * - FIFO order is maintained by position ASC ordering
+   * 
+   * **Error Handling:**
+   * - Car not found: Returns CAR_NOT_FOUND
+   * - Car suspended: Returns UNAUTHORIZED_ACCESS
+   * - Already queued: Returns CAR_ALREADY_IN_QUEUE
+   * - Database issues: Returns DB_CONNECTION_ERROR
+   * 
+   * **Concurrency Safety:**
+   * Uses retry mechanism to handle race conditions when multiple cars
+   * are added simultaneously to the same queue position.
+   * 
+   * @param request - Queue addition request containing car identifier
+   * @param request.carId - Unique identifier of car to add to queue
+   * @returns Promise resolving to created queue entry with position and timestamp
+   * @throws Never throws - all errors returned as structured ApiResponse
+   * 
+   * @example
+   * ```typescript
+   * // Add car to queue
+   * const result = await QueueService.addCarToQueue({ carId: "CAR123" });
+   * 
+   * if (result.success) {
+   *   console.log(`Car queued at position ${result.data.position}`);
+   *   console.log(`Queue ID: ${result.data.queueId}`);
+   * } else {
+   *   console.error(`Queue error: ${result.message}`);
+   * }
+   * ```
    */
   static async addCarToQueue(
     request: QueueAddRequest,
   ): Promise<ApiResponse<Queue>> {
     try {
-      // Validate car exists and retrieve seater information
+      logger.log(`🚗 Starting queue addition for car: ${request.carId}`);
+      
+      // STEP 1: VALIDATION - Verify car exists and retrieve seater information
+      // This ensures we have valid car data before proceeding with queue operations
       const carResult = await this.fetchCarDataForQueue(request.carId);
       if (!carResult.ok) {
+        logger.error(`❌ Car validation failed for ${request.carId}`);
         return carResult.response;
       }
       const carData = carResult.carData;
+      logger.log(`✅ Car validation successful: ${carData.seater}-seater vehicle`);
 
-      // Prevent adding suspended cars
+      // STEP 2: SUSPENSION CHECK - Prevent adding suspended/inactive cars
+      // Active status check protects against queuing cars that are out of service
       if (carData && carData.is_active === false) {
+        logger.warn(`🚫 Attempted to queue suspended car: ${request.carId}`);
         return {
           success: false,
           error_code: ERROR_CODES.UNAUTHORIZED_ACCESS,
@@ -646,19 +733,25 @@ export class QueueService {
         };
       }
 
-      // Resolve table name for the car's seater
+      // STEP 3: QUEUE TABLE RESOLUTION - Determine target seater-specific table
+      // Each seater capacity (4, 5, 6, 7, 8) has its own dedicated queue table
       const tn = this.getTableNameOrError(carData.seater);
       if (!tn.ok) {
+        logger.error(`❌ Invalid seater type: ${carData.seater}`);
         return tn.response;
       }
       const tableName = tn.tableName;
+      logger.log(`🎯 Target queue table: ${tableName}`);
 
-      // Prevent duplicate queue entries - check if car is already queued
+      // STEP 4: DUPLICATE PREVENTION - Check if car is already queued
+      // Prevents double-queuing which would break FIFO integrity
       const existsRes = await this.isCarAlreadyQueued(tableName, request.carId);
       if (!existsRes.ok) {
+        logger.error(`❌ Failed to check queue status for car ${request.carId}`);
         return existsRes.response;
       }
       if (existsRes.exists) {
+        logger.warn(`🔄 Car ${request.carId} is already in ${tableName}`);
         return {
           success: false,
           error_code: ERROR_CODES.CAR_ALREADY_IN_QUEUE,
@@ -666,17 +759,30 @@ export class QueueService {
         };
       }
 
-      // Determine next position in queue
+      // STEP 5: POSITION CALCULATION - Determine next FIFO position
+      // Calculates the next available position to maintain queue ordering
       const nextPosition = await this.determineNextPosition(tableName);
+      logger.log(`📍 Calculated next position: ${nextPosition}`);
 
-      // Insert car into queue with collision handling for concurrent additions
-      const insertRes = await this.insertQueueEntryWithRetries(tableName, request.carId, nextPosition);
+      // STEP 6: CONCURRENT INSERTION - Add car with collision handling
+      // Uses retry mechanism to handle race conditions during simultaneous insertions
+      const insertRes = await this.insertQueueEntryWithRetries(
+        tableName, 
+        request.carId, 
+        nextPosition
+      );
       if (!insertRes.ok) {
+        logger.error(`❌ Queue insertion failed for car ${request.carId}`);
         return insertRes.response;
       }
 
+      logger.log(`🎉 Successfully added car ${request.carId} to queue at position ${insertRes.data.position}`);
       return { success: true, data: insertRes.data };
+      
     } catch (error) {
+      // GLOBAL ERROR HANDLER - Catches any unexpected errors
+      // Provides consistent error response structure for all failure modes
+      logger.error(`💥 Unexpected error in addCarToQueue for ${request.carId}:`, error);
       return {
         success: false,
         error_code: ERROR_CODES.DB_CONNECTION_ERROR,
