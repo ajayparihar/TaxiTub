@@ -1,6 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
-
-vi.mock('../src/config/supabase', () => {
+jest.mock('../src/config/supabase', () => {
   const chain = (data: any) => ({
     select: (_q: string, _opts?: any) => chain(data),
     eq: (_c: string, _v: any) => chain(data),

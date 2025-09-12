@@ -1,7 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-
 // Mock the Supabase client used inside the service
-vi.mock('../src/config/supabase', () => {
+jest.mock('../src/config/supabase', () => {
   // Simple chainable mock for from().select().eq().order()
   const chain = (data: any) => ({
     select: (_q: string) => chain(data),

@@ -381,6 +381,115 @@ export class CarService {
       };
     }
   }
+
+  /**
+   * Adds multiple cars in bulk operation
+   * @param cars - Array of car information to add
+   * @returns Promise resolving to bulk operation result
+   */
+  static async addCarsInBulk(
+    cars: Array<Omit<CarInfo, "carId">>
+  ): Promise<ApiResponse<{ carsAdded: number; cars: CarInfo[] }>> {
+    try {
+      // Transform all cars to database format
+      const dbCars = cars.map(car => CAR_INFO_COLUMNS.INSERT_MAP(car));
+
+      const { data, error } = await supabase
+        .from(TABLES.CAR_INFO)
+        .insert(dbCars)
+        .select(CAR_INFO_COLUMNS.SELECT);
+
+      if (error) {
+        return {
+          success: false,
+          error_code: ERROR_CODES.DB_CONNECTION_ERROR,
+          message: error.message,
+        };
+      }
+
+      return {
+        success: true,
+        data: {
+          carsAdded: (data || []).length,
+          cars: (data || []) as unknown as CarInfo[]
+        }
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error_code: ERROR_CODES.DB_CONNECTION_ERROR,
+        message: "Failed to add cars in bulk",
+      };
+    }
+  }
+
+  /**
+   * Gets active cars available for queueing
+   * @returns Promise resolving to active car list
+   */
+  static async getActiveCars(): Promise<ApiResponse<CarInfo[]>> {
+    try {
+      const res = await CarService.selectCarsWithFallback({ withCount: false });
+      if (res.error) {
+        return {
+          success: false,
+          error_code: ERROR_CODES.DB_CONNECTION_ERROR,
+          message: res.error.message,
+        };
+      }
+      
+      // Filter active cars
+      const activeCars = (res.rows || []).filter((car: any) => car.isActive !== false);
+      return { success: true, data: activeCars as unknown as CarInfo[] };
+    } catch (error) {
+      return {
+        success: false,
+        error_code: ERROR_CODES.DB_CONNECTION_ERROR,
+        message: "Failed to fetch active cars",
+      };
+    }
+  }
+
+  /**
+   * Updates car status (active/inactive)
+   * @param carId - Unique identifier for the car
+   * @param isActive - New active status
+   * @returns Promise resolving to success/failure
+   */
+  static async updateCarStatus(
+    carId: string,
+    isActive: boolean
+  ): Promise<ApiResponse<{ isActive: boolean }>> {
+    try {
+      const { data, error } = await supabase
+        .from(TABLES.CAR_INFO)
+        .update({ 
+          is_active: isActive,
+          updated_at: new Date().toISOString()
+        })
+        .eq("carid", carId)
+        .select("is_active");
+
+      if (error) {
+        return {
+          success: false,
+          error_code: ERROR_CODES.CAR_NOT_FOUND,
+          message: error.message,
+        };
+      }
+
+      return {
+        success: true,
+        data: { isActive: data?.[0]?.is_active ?? isActive }
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error_code: ERROR_CODES.DB_CONNECTION_ERROR,
+        message: "Failed to update car status",
+      };
+    }
+  }
 }
 
 /**
