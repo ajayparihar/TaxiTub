@@ -114,8 +114,8 @@ export class AuthService {
 
         // If admin found, verify password
         if (!adminError && adminResult) {
-          // Verify password hash
-          const passwordValid = await verifyPassword(credentials.password, adminResult.password);
+          // Verify password (plain text comparison)
+          const passwordValid = credentials.password === adminResult.password;
           
           if (!passwordValid) {
             logger.log('❌ Admin password verification failed');
@@ -195,9 +195,8 @@ export class AuthService {
         };
       }
 
-      // Verify QueuePal password hash
-      const queuePalPasswordValid = await verifyPassword(credentials.password, staff.password);
-      if (!queuePalPasswordValid) {
+      // Verify QueuePal password (plain text comparison)
+      if (credentials.password !== staff.password) {
         logger.log('❌ QueuePal password verification failed');
         return {
           success: false,
@@ -469,16 +468,14 @@ export class StaffService {
         };
       }
 
-      // Hash the password before storing
-      const hashedPassword = await hashPassword(staffData.password);
-      
+      // Store password as plain text
       const { data, error } = await supabase
         .from(TABLES.QUEUE_PAL)
         .insert([{
           username: staffData.username,
           name: staffData.name,
           contact: staffData.contact,
-          password: hashedPassword, // Now properly hashed!
+          password: staffData.password, // Plain text password
           is_active: true,
           created_by: currentUser.id
         }])
@@ -690,11 +687,10 @@ export class StaffService {
       };
 
       const tmp = generateTempPassword(10);
-      const hashedTempPassword = await hashPassword(tmp);
       
       const { error } = await supabase
         .from(TABLES.QUEUE_PAL)
-        .update({ password: hashedTempPassword, updated_at: new Date().toISOString() })
+        .update({ password: tmp, updated_at: new Date().toISOString() })
         .eq("id", staffId);
 
       if (error) {

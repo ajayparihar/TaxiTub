@@ -233,7 +233,7 @@ services:
     environment:
       POSTGRES_DB: taxitub
       POSTGRES_USER: taxitub_user
-      POSTGRES_PASSWORD: secure_password_here
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./supabase-setup.sql:/docker-entrypoint-initdb.d/init.sql
@@ -246,10 +246,10 @@ services:
     image: postgrest/postgrest:v11.2.0
     container_name: taxitub-api
     environment:
-      PGRST_DB_URI: postgres://taxitub_user:secure_password_here@postgres:5432/taxitub
+      PGRST_DB_URI: postgres://taxitub_user:${POSTGRES_PASSWORD}@postgres:5432/taxitub
       PGRST_DB_SCHEMA: public
       PGRST_DB_ANON_ROLE: anon
-      PGRST_JWT_SECRET: your-jwt-secret-here
+      PGRST_JWT_SECRET: ${JWT_SECRET}
     ports:
       - "3001:3000"
     depends_on:
