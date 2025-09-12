@@ -36,7 +36,19 @@ export default defineConfig(({ command, mode }) => {
     test: {
       globals: true,
       environment: 'node',
-      include: ['tests/**/*.{test,spec}.ts']
+      setupFiles: ['./test-setup.ts'],
+      include: ['tests/**/*.{test,spec}.ts'],
+      alias: {
+        '@': resolve(__dirname, 'src'),
+        '@/components': resolve(__dirname, 'src/components'),
+        '@/pages': resolve(__dirname, 'src/pages'),
+        '@/services': resolve(__dirname, 'src/services'),
+        '@/types': resolve(__dirname, 'src/types'),
+        '@/config': resolve(__dirname, 'src/config'),
+        '@/utils': resolve(__dirname, 'src/utils'),
+        '@/hooks': resolve(__dirname, 'src/hooks'),
+        '@/constants': resolve(__dirname, 'src/constants'),
+      }
     },
     // ========================================
     // PLUGINS CONFIGURATION

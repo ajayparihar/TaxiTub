@@ -1,5 +1,5 @@
 /**
- * TaxiTub ESLint Configuration - Minimal Setup
+ * TaxiTub ESLint Configuration - TypeScript Support
  */
 module.exports = {
   root: true,
@@ -10,18 +10,22 @@ module.exports = {
   },
   extends: [
     'eslint:recommended',
+    '@typescript-eslint/recommended',
     'plugin:react/recommended',
     'plugin:react-hooks/recommended',
+    'plugin:@typescript-eslint/recommended',
   ],
-  ignorePatterns: ['dist', 'build', 'node_modules'],
+  ignorePatterns: ['dist', 'build', 'node_modules', '*.js'],
+  parser: '@typescript-eslint/parser',
   parserOptions: {
     ecmaVersion: 'latest',
     sourceType: 'module',
     ecmaFeatures: {
       jsx: true,
     },
+    project: './tsconfig.json',
   },
-  plugins: ['react', 'react-refresh'],
+  plugins: ['react', 'react-refresh', '@typescript-eslint'],
   rules: {
     'react/react-in-jsx-scope': 'off',
     'react/prop-types': 'off',
@@ -33,6 +37,9 @@ module.exports = {
     'no-debugger': 'error',
     'prefer-const': 'error',
     'no-var': 'error',
+    '@typescript-eslint/no-unused-vars': 'warn',
+    '@typescript-eslint/no-explicit-any': 'warn',
+    '@typescript-eslint/explicit-function-return-type': 'off',
   },
   settings: {
     react: {

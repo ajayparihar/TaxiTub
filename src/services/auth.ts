@@ -6,15 +6,26 @@
 
 /**
  * SECURITY NOTE:
- * - This module contains development-only fallbacks and logs that should never be enabled in production.
- * - Credentials MUST be stored hashed (e.g., bcrypt) and never queried or stored in plaintext.
- * - Avoid logging sensitive authentication details (even indirectly) in production builds.
- * - localStorage is used for lightweight session state only; do not persist secrets.
- * These comments document intent and constraints; there are no functional changes in this edit.
+ * - Password hashing implemented with bcrypt for secure storage
+ * - No plaintext passwords stored or transmitted
+ * - localStorage is used for lightweight session state only; no secrets persisted
+ * - Development fallbacks removed for production security
  */
 import { supabase, TABLES } from "../config/supabase";
 import { ApiResponse, ERROR_CODES } from "../types";
 import { logger } from "../utils/logger";
+import * as bcrypt from 'bcryptjs';
+
+// Password hashing utility
+const SALT_ROUNDS = 12;
+
+export const hashPassword = async (password: string): Promise<string> => {
+  return await bcrypt.hash(password, SALT_ROUNDS);
+};
+
+export const verifyPassword = async (password: string, hash: string): Promise<boolean> => {
+  return await bcrypt.compare(password, hash);
+};
 
 // User types
 /**
@@ -80,13 +91,12 @@ export class AuthService {
       // Try direct admin table authentication (works with your current database schema)
       let adminAuthResult = null;
       try {
-        // NOTE: Avoid logging sensitive details in production. This log is for development diagnostics.
-        logger.log('🔍 Attempting direct admin authentication for:', credentials.username);
+        // NOTE: Secure admin authentication with password hashing
+        logger.log('🔍 Attempting admin authentication for:', credentials.username);
         const { data: adminResult, error: adminError } = await supabase
           .from(TABLES.ADMIN)
-          .select('admin_id, username, full_name, last_login, is_active')
+          .select('admin_id, username, full_name, last_login, is_active, password')
           .eq('username', credentials.username)
-          .eq('password', credentials.password)
           .eq('is_active', true)
           .maybeSingle();
         
@@ -102,35 +112,43 @@ export class AuthService {
           }
         });
 
-        // If admin authentication succeeded
+        // If admin found, verify password
         if (!adminError && adminResult) {
-          // Update last_login timestamp
-          await supabase
-            .from(TABLES.ADMIN)
-            .update({ 
-              last_login: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            })
-            .eq('admin_id', adminResult.admin_id);
+          // Verify password hash
+          const passwordValid = await verifyPassword(credentials.password, adminResult.password);
+          
+          if (!passwordValid) {
+            logger.log('❌ Admin password verification failed');
+            adminAuthResult = { adminResult: null, adminError: { message: 'Invalid credentials' } };
+          } else {
+            // Update last_login timestamp
+            await supabase
+              .from(TABLES.ADMIN)
+              .update({ 
+                last_login: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              })
+              .eq('admin_id', adminResult.admin_id);
 
-          const adminUser: User = {
-            id: adminResult.admin_id,
-            username: adminResult.username,
-            role: "Admin",
-            name: adminResult.full_name,
-            isActive: true,
-            createdAt: new Date(),
-            lastLogin: adminResult.last_login ? new Date(adminResult.last_login) : new Date()
-          };
-          
-          // Store in localStorage
-          this.setCurrentUser(adminUser);
-          
-          logger.log('✅ Admin authentication successful via database table');
-          return {
-            success: true,
-            data: adminUser
-          };
+            const adminUser: User = {
+              id: adminResult.admin_id,
+              username: adminResult.username,
+              role: "Admin",
+              name: adminResult.full_name,
+              isActive: true,
+              createdAt: new Date(),
+              lastLogin: adminResult.last_login ? new Date(adminResult.last_login) : new Date()
+            };
+            
+            // Store in localStorage
+            this.setCurrentUser(adminUser);
+            
+            logger.log('✅ Admin authentication successful via database table');
+            return {
+              success: true,
+              data: adminUser
+            };
+          }
         }
         adminAuthResult = { adminResult, adminError };
       } catch (dbError) {
@@ -147,13 +165,12 @@ export class AuthService {
       let queuePalError = null;
       
       try {
-        // NOTE: Avoid logging sensitive details in production. This log is for development diagnostics.
+        // NOTE: Secure QueuePal authentication with password hashing
         logger.log('🔍 Attempting QueuePal authentication for:', credentials.username);
         const result = await supabase
           .from(TABLES.QUEUE_PAL)
           .select("*")
           .eq("username", credentials.username)  // Using username field (matches your schema)
-          .eq("password", credentials.password)  // Also match password
           .eq("is_active", true)  // Only active users
           .maybeSingle();  // Use maybeSingle to avoid 406 error
           
@@ -178,8 +195,16 @@ export class AuthService {
         };
       }
 
-      // Password is already validated in the query above (eq("password", credentials.password))
-      // No need for additional password check since the query only returns matching records
+      // Verify QueuePal password hash
+      const queuePalPasswordValid = await verifyPassword(credentials.password, staff.password);
+      if (!queuePalPasswordValid) {
+        logger.log('❌ QueuePal password verification failed');
+        return {
+          success: false,
+          error_code: ERROR_CODES.UNAUTHORIZED_ACCESS,
+          message: "Invalid username or password."
+        };
+      }
 
       // Update last login (if queuepal table has this field)
       // await supabase
@@ -444,13 +469,16 @@ export class StaffService {
         };
       }
 
+      // Hash the password before storing
+      const hashedPassword = await hashPassword(staffData.password);
+      
       const { data, error } = await supabase
         .from(TABLES.QUEUE_PAL)
         .insert([{
           username: staffData.username,
           name: staffData.name,
           contact: staffData.contact,
-          password: staffData.password, // In production, hash this!
+          password: hashedPassword, // Now properly hashed!
           is_active: true,
           created_by: currentUser.id
         }])
@@ -662,9 +690,11 @@ export class StaffService {
       };
 
       const tmp = generateTempPassword(10);
+      const hashedTempPassword = await hashPassword(tmp);
+      
       const { error } = await supabase
         .from(TABLES.QUEUE_PAL)
-        .update({ password: tmp, updated_at: new Date().toISOString() })
+        .update({ password: hashedTempPassword, updated_at: new Date().toISOString() })
         .eq("id", staffId);
 
       if (error) {
