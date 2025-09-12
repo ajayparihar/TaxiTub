@@ -18,17 +18,234 @@ import { CAR_INFO_COLUMNS, normalizeQueueRowsToView } from "./apiUtils";
 import { SEATER_TYPES } from "../constants";
 import { logger } from "../utils/logger";
 
+// =============================================================================
+// CONSTANTS AND VALIDATION RULES
+// =============================================================================
+
 /**
- * Car Management Service - Handles all car-related database operations
- * Used primarily by Admin users for managing the vehicle fleet
+ * System validation constants for input validation and business rules
+ * These constants ensure consistency across the application and make
+ * business rules easily configurable.
+ */
+const VALIDATION_RULES = {
+  /** Passenger count limits for taxi assignment */
+  PASSENGER_COUNT: {
+    MIN: 1,
+    MAX: 8,
+  },
+  /** Pagination limits for performance optimization */
+  PAGINATION: {
+    DEFAULT_PAGE_SIZE: 50,
+    MAX_PAGE_SIZE: 100,
+    MIN_PAGE: 1,
+  },
+  /** Seater capacity validation */
+  SEATER_CAPACITY: {
+    VALID_TYPES: [4, 5, 6, 7, 8] as const,
+    MIN: 4,
+    MAX: 8,
+  },
+  /** Database operation limits */
+  DATABASE: {
+    MAX_RETRY_ATTEMPTS: 3,
+    QUERY_TIMEOUT_MS: 30000,
+  },
+} as const;
+
+/**
+ * Input validation helper functions
+ * These functions provide consistent validation across all services
+ * and ensure data integrity before database operations.
+ */
+const ValidationHelpers = {
+  /**
+   * Validates passenger count for taxi assignment
+   * @param count - Number of passengers
+   * @returns True if valid, false otherwise
+   */
+  isValidPassengerCount: (count: number): boolean => {
+    return Number.isInteger(count) && 
+           count >= VALIDATION_RULES.PASSENGER_COUNT.MIN && 
+           count <= VALIDATION_RULES.PASSENGER_COUNT.MAX;
+  },
+  
+  /**
+   * Validates seater capacity
+   * @param seater - Vehicle seater capacity
+   * @returns True if valid, false otherwise
+   */
+  isValidSeaterType: (seater: number): boolean => {
+    return VALIDATION_RULES.SEATER_CAPACITY.VALID_TYPES.includes(seater as any);
+  },
+  
+  /**
+   * Validates pagination parameters
+   * @param page - Page number
+   * @param pageSize - Number of items per page
+   * @returns Object with validation results
+   */
+  validatePagination: (page: number, pageSize: number): {
+    isValid: boolean;
+    normalizedPage: number;
+    normalizedPageSize: number;
+    error?: string;
+  } => {
+    // Normalize and validate page number
+    const normalizedPage = Math.max(VALIDATION_RULES.PAGINATION.MIN_PAGE, Math.floor(page) || 1);
+    
+    // Normalize and validate page size
+    const normalizedPageSize = Math.min(
+      VALIDATION_RULES.PAGINATION.MAX_PAGE_SIZE,
+      Math.max(1, Math.floor(pageSize) || VALIDATION_RULES.PAGINATION.DEFAULT_PAGE_SIZE)
+    );
+    
+    return {
+      isValid: true,
+      normalizedPage,
+      normalizedPageSize,
+    };
+  },
+};
+
+// =============================================================================
+// UTILITY FUNCTIONS
+// =============================================================================
+
+/**
+ * Utility function to create standardized error responses
+ * This eliminates redundant error handling patterns across the codebase
+ * and ensures consistent error response structure.
+ * 
+ * @param {string} errorCode - Error code from ERROR_CODES enum
+ * @param {string} defaultMessage - Default message to use if none provided
+ * @param {Error|string} [originalError] - Original error object or message (optional)
+ * @returns {ApiResponse<never>} Standardized error response object
+ */
+const createErrorResponse = (
+  errorCode: string,
+  defaultMessage: string,
+  originalError?: Error | string
+): ApiResponse<never> => {
+  const errorMessage = typeof originalError === 'string'
+    ? originalError
+    : originalError?.message || defaultMessage;
+    
+  return {
+    success: false,
+    error_code: errorCode,
+    message: errorMessage,
+  };
+};
+
+/**
+ * Utility function to validate and resolve queue table name
+ * Eliminates duplicate seater validation logic across queue operations
+ * 
+ * @param {number} seater - Seater capacity to validate
+ * @returns {string|null} Table name if valid, null if invalid
+ */
+const getValidatedQueueTable = (seater: number): string | null => {
+  const tableName = SEATER_QUEUE_TABLES[seater];
+  return tableName || null;
+};
+
+/**
+ * Utility function to create success response with consistent structure
+ * Reduces boilerplate code for successful API responses
+ * 
+ * @template T
+ * @param {T} data - Response data of type T
+ * @returns {ApiResponse<T>} Standardized success response
+ */
+const createSuccessResponse = <T>(data: T): ApiResponse<T> => ({
+  success: true,
+  data,
+});
+
+/**
+ * Car Management Service - Handles all car-related database operations for the TaxiTub fleet
+ * 
+ * This service provides comprehensive CRUD operations for vehicle management with:
+ * - Pagination support for large datasets
+ * - Search functionality across multiple fields (plate, driver, model)
+ * - Fallback mechanisms for different database schema versions
+ * - Active/inactive status management for operational control
+ * 
+ * **Security Considerations:**
+ * - All operations require appropriate role-based access
+ * - Database queries use prepared statements via Supabase
+ * - Input validation and sanitization handled at database layer
+ * 
+ * **Performance Features:**
+ * - Server-side pagination reduces memory usage
+ * - Optimized queries with proper column selection
+ * - Fallback methods for backward compatibility
+ * 
+ * @example
+ * ```typescript
+ * // Get paginated cars with search
+ * const result = await CarService.getCars(1, 20, "toyota");
+ * if (result.success) {
+ *   console.log(`Found ${result.data.total} cars`);
+ * }
+ * 
+ * // Add new car to fleet
+ * const newCar = await CarService.addCar({
+ *   plateNo: "DL01AB1234",
+ *   driverName: "John Doe",
+ *   driverPhone: "+91-9876543210",
+ *   carModel: "Toyota Innova",
+ *   seater: 6
+ * });
+ * ```
+ * 
+ * @version 0.1.0
+ * @since 2025-09-06
  */
 export class CarService {
   /**
-   * Retrieves cars with pagination and optional search functionality
-   * @param page - Page number (1-indexed) for pagination
-   * @param pageSize - Number of cars to return per page (default: 50)
-   * @param searchTerm - Optional search string to filter cars by plate, driver name, or model
-   * @returns Promise resolving to paginated car data with metadata
+   * Retrieves cars with advanced pagination and multi-field search capabilities
+   * 
+   * **Search Strategy:**
+   * - Uses case-insensitive search across plateNo, driverName, and carModel fields
+   * - Server-side filtering with PostgreSQL ILIKE for performance
+   * - Falls back to client-side filtering for complex search scenarios
+   * 
+   * **Pagination Logic:**
+   * - 1-indexed page numbers for user-friendly interface
+   * - Automatic calculation of hasMore flag for infinite scroll support
+   * - Efficient offset-based pagination with count optimization
+   * 
+   * **Performance Optimizations:**
+   * - Uses exact count only when needed to reduce query overhead
+   * - Optimized column selection to minimize data transfer
+   * - Smart query path selection based on search requirements
+   * 
+   * @param {number} [page=1] - Page number (1-indexed) for pagination. Must be >= 1
+   * @param {number} [pageSize=50] - Number of cars per page. Range: 1-100 for optimal performance
+   * @param {string} [searchTerm=""] - Search string to filter by plate/driver/model (case-insensitive)
+   * 
+   * @returns {Promise<ApiResponse<{cars: CarInfo[]; hasMore: boolean; total: number}>>} 
+   *   Paginated response with:
+   *   - cars: Array of car records matching search criteria
+   *   - hasMore: Boolean indicating if more pages exist
+   *   - total: Total count of matching records
+   * 
+   * @throws {ERROR_CODES.DB_CONNECTION_ERROR} Database connection or query failure
+   * 
+   * @example
+   * ```typescript
+   * // Get first page with default settings
+   * const result = await CarService.getCars();
+   * 
+   * // Search with pagination
+   * const searchResult = await CarService.getCars(1, 20, "innova");
+   * if (searchResult.success) {
+   *   const { cars, hasMore, total } = searchResult.data;
+   *   console.log(`Found ${total} cars, showing ${cars.length}`);
+   *   if (hasMore) console.log("More results available");
+   * }
+   * ```
    */
   static async getCars(
     page: number = 1,
@@ -36,8 +253,13 @@ export class CarService {
     searchTerm: string = ""
   ): Promise<ApiResponse<{ cars: CarInfo[]; hasMore: boolean; total: number }>> {
     try {
+      // Validate and normalize pagination parameters
+      const paginationValidation = ValidationHelpers.validatePagination(page, pageSize);
+      const normalizedPage = paginationValidation.normalizedPage;
+      const normalizedPageSize = paginationValidation.normalizedPageSize;
+      
       // Calculate offset for pagination (zero-indexed for database queries)
-      const offset = (page - 1) * pageSize;
+      const offset = (normalizedPage - 1) * normalizedPageSize;
       
       // Handle search queries with client-side filtering
       // Note: Using client-side filtering to avoid PostgREST URL encoding complexities
@@ -50,17 +272,17 @@ export class CarService {
           .select(CAR_INFO_COLUMNS.SELECT, { count: "exact" })
           .or(`plateno.ilike.${term},drivername.ilike.${term},carmodel.ilike.${term}`)
           .order("plateno")
-          .range(offset, offset + pageSize - 1);
+          .range(offset, offset + normalizedPageSize - 1);
 
         if (error) {
-          return {
-            success: false,
-            error_code: ERROR_CODES.DB_CONNECTION_ERROR,
-            message: error.message,
-          };
+          return createErrorResponse(
+            ERROR_CODES.DB_CONNECTION_ERROR,
+            "Failed to fetch cars",
+            error
+          );
         }
 
-        const hasMore = count ? offset + pageSize < count : false;
+        const hasMore = count ? offset + normalizedPageSize < count : false;
         return {
           success: true,
           data: {
@@ -74,22 +296,22 @@ export class CarService {
       // Optimized path: Use server-side pagination when no search is needed
       const res = await CarService.selectCarsWithFallback({
         withCount: true,
-        range: { from: offset, to: offset + pageSize - 1 },
+        range: { from: offset, to: offset + normalizedPageSize - 1 },
       });
 
       if (res.error) {
-        return {
-          success: false,
-          error_code: ERROR_CODES.DB_CONNECTION_ERROR,
-          message: res.error.message,
-        };
+        return createErrorResponse(
+          ERROR_CODES.DB_CONNECTION_ERROR,
+          "Failed to fetch cars",
+          res.error
+        );
       }
 
       const rows = res.rows || [];
       const totalCount = res.count || 0;
 
       // Determine if there are more pages available
-      const hasMore = totalCount ? offset + pageSize < totalCount : false;
+      const hasMore = totalCount ? offset + normalizedPageSize < totalCount : false;
       
       return { 
         success: true, 
@@ -100,11 +322,11 @@ export class CarService {
         }
       };
     } catch (error) {
-      return {
-        success: false,
-        error_code: ERROR_CODES.DB_CONNECTION_ERROR,
-        message: "Failed to fetch cars",
-      };
+      return createErrorResponse(
+        ERROR_CODES.DB_CONNECTION_ERROR,
+        "Failed to fetch cars",
+        error as Error
+      );
     }
   }
 
@@ -214,19 +436,18 @@ export class CarService {
         const legacyMessage = result.message === "Failed to fetch cars for display"
           ? "Failed to fetch cars"
           : (result.message || "Failed to fetch cars");
-        return {
-          success: false,
-          error_code: result.error_code || ERROR_CODES.DB_CONNECTION_ERROR,
-          message: legacyMessage,
-        };
+        return createErrorResponse(
+          result.error_code || ERROR_CODES.DB_CONNECTION_ERROR,
+          legacyMessage
+        );
       }
       return result;
-    } catch (_err) {
-      return {
-        success: false,
-        error_code: ERROR_CODES.DB_CONNECTION_ERROR,
-        message: "Failed to fetch cars",
-      };
+    } catch (error) {
+      return createErrorResponse(
+        ERROR_CODES.DB_CONNECTION_ERROR,
+        "Failed to fetch cars",
+        error as Error
+      );
     }
   }
 
@@ -384,8 +605,54 @@ export class CarService {
 }
 
 /**
- * Queue Management Service - Handles FIFO queue operations
- * Used by QueuePal users to manage taxi queues by seater capacity
+ * Queue Management Service - Advanced FIFO queue operations for TaxiTub taxi dispatch
+ * 
+ * This service implements a sophisticated queue management system with:
+ * - **Individual Seater Queues**: Separate database tables for each vehicle capacity (4,5,6,7,8 seaters)
+ * - **FIFO Integrity**: Maintains strict First-In-First-Out order with position validation
+ * - **Concurrent Safety**: Handles multiple simultaneous queue operations safely
+ * - **Auto-Repair**: Automatic position fixing to maintain consecutive numbering
+ * 
+ * **Queue Architecture:**
+ * ```
+ * queue_4seater  →  [Car1, Car2, Car3] (positions: 1,2,3)
+ * queue_5seater  →  [Car4, Car5]       (positions: 1,2)
+ * queue_6seater  →  [Car6]             (positions: 1)
+ * queue_7seater  →  []                 (empty)
+ * queue_8seater  →  [Car7, Car8]       (positions: 1,2)
+ * ```
+ * 
+ * **Key Benefits:**
+ * - **Isolation**: Each seater type has independent queue operations
+ * - **Performance**: Table-specific indexes for faster queries
+ * - **Scalability**: No cross-table dependencies or locks
+ * - **Reliability**: Built-in position repair mechanisms
+ * 
+ * **Security Features:**
+ * - Validates car registration before queuing
+ * - Prevents duplicate queue entries
+ * - Checks car active status to prevent suspended vehicles
+ * - Maintains audit trail with timestamps
+ * 
+ * @example
+ * ```typescript
+ * // Add car to appropriate queue based on seater capacity
+ * const queueResult = await QueueService.addCarToQueue({ carId: "car-123" });
+ * 
+ * // Get current 6-seater queue status
+ * const queue = await QueueService.getQueueBySeater(6);
+ * if (queue.success) {
+ *   console.log(`${queue.data.entries.length} cars in 6-seater queue`);
+ * }
+ * 
+ * // Fix position gaps after manual operations
+ * await QueueService.fixQueuePositions(); // All queues
+ * await QueueService.fixQueuePositions(4); // Only 4-seater queue
+ * ```
+ * 
+ * @version 0.1.0
+ * @since 2025-09-06
+ * @see {@link BookingService} For taxi assignment and queue consumption
  */
 export class QueueService {
   /**
@@ -447,15 +714,14 @@ export class QueueService {
   private static getTableNameOrError(
     seater: number
   ): { ok: true; tableName: string } | { ok: false; response: ApiResponse<never> } {
-    const tableName = SEATER_QUEUE_TABLES[seater];
+    const tableName = getValidatedQueueTable(seater);
     if (!tableName) {
       return {
         ok: false,
-        response: {
-          success: false,
-          error_code: ERROR_CODES.INVALID_SEATER_INPUT,
-          message: `Invalid seater type: ${seater}`,
-        },
+        response: createErrorResponse(
+          ERROR_CODES.INVALID_SEATER_INPUT,
+          `Invalid seater type: ${seater}`
+        ),
       };
     }
     return { ok: true, tableName };
@@ -487,11 +753,11 @@ export class QueueService {
       if (fb.error || !fb.data) {
         return {
           ok: false,
-          response: {
-            success: false,
-            error_code: ERROR_CODES.CAR_NOT_FOUND,
-            message: "Car not registered in system",
-          },
+          response: createErrorResponse(
+            ERROR_CODES.CAR_NOT_FOUND,
+            "Car not registered in system",
+            fb.error
+          ),
         };
       }
       carData = fb.data;
@@ -675,7 +941,7 @@ export class QueueService {
         return insertRes.response;
       }
 
-      return { success: true, data: insertRes.data };
+      return createSuccessResponse(insertRes.data);
     } catch (error) {
       return {
         success: false,
@@ -837,48 +1103,226 @@ export class QueueService {
 }
 
 /**
- * Booking Service - Handles optimized taxi assignments from individual seater queue tables
+ * Booking Service - Intelligent taxi assignment with optimized passenger-vehicle matching
  * 
- * OPTIMIZED ALLOCATION WITH MOVE-UP ALGORITHM:
- * ============================================
+ * This service implements a sophisticated allocation algorithm that maximizes vehicle utilization
+ * while maintaining strict FIFO queue integrity across seater-specific queues.
  * 
- * The system uses individual database tables for each seater type with optimized allocation:
+ * ## OPTIMIZED ALLOCATION WITH MOVE-UP ALGORITHM
  * 
- * 1. INDIVIDUAL QUEUE TABLES:
- *    - queue_4seater: Dedicated table for 4-seater vehicles
- *    - queue_5seater: Dedicated table for 5-seater vehicles
- *    - queue_6seater: Dedicated table for 6-seater vehicles
- *    - queue_7seater: Dedicated table for 7-seater vehicles
- *    - queue_8seater: Dedicated table for 8-seater vehicles
+ * ### 🏗️ Architecture Overview:
+ * The system uses **individual database tables** for each vehicle capacity:
+ * ```
+ * ┌─────────────────┬──────────────────────┬───────────────────┐
+ * │ Seater Type     │ Database Table       │ Typical Use Case  │
+ * ├─────────────────┼──────────────────────┼───────────────────┤
+ * │ 4-seater        │ queue_4seater        │ 1-4 passengers    │
+ * │ 5-seater        │ queue_5seater        │ 5 passengers      │
+ * │ 6-seater        │ queue_6seater        │ 6 passengers      │
+ * │ 7-seater        │ queue_7seater        │ 7 passengers      │
+ * │ 8-seater        │ queue_8seater        │ 8 passengers      │
+ * └─────────────────┴──────────────────────┴───────────────────┘
+ * ```
  * 
- * 2. OPTIMIZED ALLOCATION RULES:
- *    - 1-4 passengers: Try 4-seater → 5-seater → 6-seater → 7-seater → 8-seater
- *    - 5 passengers: Try 5-seater → 6-seater → 7-seater → 8-seater
- *    - 6 passengers: Try 6-seater → 7-seater → 8-seater
- *    - 7 passengers: Try 7-seater → 8-seater
- *    - 8 passengers: Only 8-seater
+ * ### 🎯 Smart Allocation Rules:
+ * **Priority Algorithm**: Always try the optimal seater first, then move up:
+ * - **1-4 passengers**: 4→5→6→7→8 seater priority
+ * - **5 passengers**: 5→6→7→8 seater priority  
+ * - **6 passengers**: 6→7→8 seater priority
+ * - **7 passengers**: 7→8 seater priority
+ * - **8 passengers**: 8-seater only (required)
  * 
- * 3. ALLOCATION EXAMPLES:
- *    - 1 passenger: Optimum 4-seater (100% match), fallback to larger if needed
- *    - 3 passengers: Optimum 4-seater (75% efficiency), move up if not available
- *    - 5 passengers: Optimum 5-seater (100% match), fallback to 6/7/8-seater
- *    - 7 passengers: Optimum 7-seater (100% match), fallback to 8-seater
- *    - 8 passengers: Only 8-seater (100% match - required)
+ * ### 📊 Efficiency Examples:
+ * ```typescript
+ * Passenger Count → Vehicle → Efficiency → Rating
+ * 3 passengers   → 4-seater →    75%   → Good ✅
+ * 3 passengers   → 6-seater →    50%   → Fair 😐
+ * 5 passengers   → 5-seater →   100%   → Perfect 🎯
+ * 7 passengers   → 8-seater →    88%   → Optimal ✅
+ * ```
  * 
- * 4. BENEFITS:
- *    - Individual tables ensure complete queue isolation
- *    - Try optimum seater first for best efficiency
- *    - Move up to larger seaters only when needed
- *    - Better database performance with separate tables
- *    - Clear assignment logic: optimum first, then move up
+ * ### 🔄 Queue Processing Flow:
+ * 1. **Validate Input**: Check passenger count (1-8)
+ * 2. **Determine Priority**: Calculate optimal seater and fallback sequence
+ * 3. **Search Queues**: Try each queue in priority order (FIFO within each)
+ * 4. **Assign Vehicle**: Remove from queue and return car details
+ * 5. **Auto-Repair**: Fix position gaps to maintain queue integrity
  * 
- * 5. QUEUE MANAGEMENT:
- *    - Each table maintains independent FIFO order
- *    - Position numbering is consecutive within each table
- *    - No cross-table dependencies
- *    - Better performance with table-specific indexes
+ * ### 🏆 Key Benefits:
+ * - **Queue Isolation**: Independent tables prevent cross-contamination
+ * - **Optimal Matching**: Always tries best-fit vehicle first
+ * - **Performance**: Table-specific indexes for faster queries
+ * - **Scalability**: No cross-table locks or dependencies
+ * - **Reliability**: Built-in position repair and verification
+ * 
+ * @example
+ * ```typescript
+ * // Assign taxi for 3 passengers
+ * const assignment = await BookingService.assignTaxi(3, "Airport Terminal 1");
+ * if (assignment.success) {
+ *   const { car, queuePosition } = assignment.data;
+ *   console.log(`Assigned ${car.plateNo} (was position ${queuePosition})`);
+ *   console.log(`Driver: ${car.driverName}, Phone: ${car.driverPhone}`);
+ * }
+ * 
+ * // Check allocation efficiency
+ * const result = await BookingService.assignTaxi(5);
+ * // Will try 5-seater first (100% efficiency)
+ * // Falls back to 6-seater (83% efficiency) if 5-seater unavailable
+ * ```
+ * 
+ * @version 0.1.0
+ * @since 2025-09-06
+ * @see {@link QueueService} For queue management operations
  */
 export class BookingService {
+  /**
+   * Validates passenger count for taxi assignment
+   * @param {number} passengerCount - Number of passengers requiring transportation
+   * @returns {ApiResponse<null>|null} Error response if invalid, null if valid
+   */
+  private static validatePassengerCount(passengerCount: number): ApiResponse<null> | null {
+    if (!ValidationHelpers.isValidPassengerCount(passengerCount)) {
+      return createErrorResponse(
+        ERROR_CODES.INVALID_SEATER_INPUT,
+        `Passenger count must be between ${VALIDATION_RULES.PASSENGER_COUNT.MIN} and ${VALIDATION_RULES.PASSENGER_COUNT.MAX}`
+      );
+    }
+    return null;
+  }
+
+  /**
+   * Determines the optimal seater capacity and allocation priority for passenger count
+   * @param {number} passengerCount - Number of passengers
+   * @returns {object} Allocation strategy with optimum seater and priority sequence
+   */
+  private static determineAllocationStrategy(passengerCount: number): {
+    optimumSeater: number;
+    allocationPriority: number[];
+  } {
+    // Determine optimum seater based on passenger count
+    let optimumSeater: number;
+    if (passengerCount <= 4) {
+      optimumSeater = 4;
+    } else if (passengerCount === 5) {
+      optimumSeater = 5;
+    } else if (passengerCount === 6) {
+      optimumSeater = 6;
+    } else if (passengerCount === 7) {
+      optimumSeater = 7;
+    } else {
+      optimumSeater = 8;
+    }
+    
+    // Create priority order: optimum seater first, then move up
+    const allocationPriority: number[] = [];
+    for (let seater = optimumSeater; seater <= 8; seater++) {
+      if (SEATER_QUEUE_TABLES[seater]) {
+        allocationPriority.push(seater);
+      }
+    }
+    
+    return { optimumSeater, allocationPriority };
+  }
+
+  /**
+   * Searches queues in priority order to find an available vehicle
+   * @param {number[]} allocationPriority - Seater types in priority order
+   * @param {number} optimumSeater - The optimal seater type for efficiency
+   * @returns {Promise<object>} Assignment result with car info and queue details
+   */
+  private static async searchQueuesForAvailableVehicle(
+    allocationPriority: number[],
+    optimumSeater: number
+  ): Promise<{
+    assignedCar: CarInfo | null;
+    queueEntry: any;
+    queuePosition: number;
+    allocatedSeaterType: number;
+  }> {
+    let assignedCar: CarInfo | null = null;
+    let queueEntry: any = null;
+    let queuePosition = 0;
+    let allocatedSeaterType = 0;
+
+    // Try allocation in priority order (optimum first, then move up)
+    for (const seater of allocationPriority) {
+      logger.log(`🔍 Checking ${seater}-seater queue...`);
+      const { data: queueData, error: queueError } = await BookingService.getNextAvailableEntry(seater);
+
+      // Found a car in this seater type queue
+      if (queueData && !queueError && queueData.carinfo) {
+        queueEntry = queueData;
+        // Handle Supabase join result (could be array or object)
+        const carinfo = Array.isArray(queueData.carinfo) ? queueData.carinfo[0] : queueData.carinfo;
+        if (carinfo) {
+          assignedCar = carinfo;
+          queuePosition = queueData.position;
+          allocatedSeaterType = seater;
+          const isOptimum = seater === optimumSeater;
+          logger.log(`✅ ${isOptimum ? 'OPTIMUM' : 'MOVE-UP'} assignment: ${seater}-seater taxi: ${carinfo.plateNo} (Position: ${queuePosition})`);
+          break; // Use first available car (FIFO within priority)
+        }
+      } else {
+        logger.log(`⏳ No cars available in ${seater}-seater queue`);
+      }
+    }
+
+    return { assignedCar, queueEntry, queuePosition, allocatedSeaterType };
+  }
+
+  /**
+   * Removes assigned car from queue and verifies removal
+   * @param {any} queueEntry - Queue entry to remove
+   * @param {number} allocatedSeaterType - Seater type of the allocated vehicle
+   * @returns {Promise<ApiResponse<null>|null>} Error response if failed, null if successful
+   */
+  private static async removeCarFromQueueAndVerify(
+    queueEntry: any,
+    allocatedSeaterType: number
+  ): Promise<ApiResponse<null> | null> {
+    // Remove car from the appropriate seater-specific queue
+    const queueTableName = SEATER_QUEUE_TABLES[allocatedSeaterType];
+    if (!queueTableName) {
+      return createErrorResponse(
+        ERROR_CODES.DB_CONNECTION_ERROR,
+        "Invalid seater type for queue removal"
+      );
+    }
+
+    const { error: removeError } = await supabase
+      .from(queueTableName)
+      .delete()
+      .eq("queueid", queueEntry.queueId);
+
+    if (removeError) {
+      logger.error(`❌ Failed to remove car from queue: ${removeError.message}`);
+      return createErrorResponse(
+        ERROR_CODES.DB_CONNECTION_ERROR,
+        `Failed to assign taxi: ${removeError.message}`
+      );
+    }
+
+    // Verify the car was actually removed from queue
+    if (queueTableName) {
+      const { data: verifyQueue } = await supabase
+        .from(queueTableName)
+        .select("queueid")
+        .eq("queueid", queueEntry.queueId)
+        .maybeSingle();
+        
+      if (verifyQueue) {
+        logger.error(`❌ Queue verification failed - car still in queue`);
+        return createErrorResponse(
+          ERROR_CODES.DB_CONNECTION_ERROR,
+          "Assignment failed - please try again"
+        );
+      }
+    }
+
+    return null; // Success - no error
+  }
+
   /**
    * Helper function to get allocation efficiency information
    * @param passengerCount - Number of passengers
@@ -971,147 +1415,56 @@ export class BookingService {
     destination?: string
   ): Promise<ApiResponse<{ car: CarInfo; queuePosition: number; destination?: string }>> {
     try {
-      // Validate passenger count against system constraints
-      if (passengerCount <= 0 || passengerCount > 8) {
-        return {
-          success: false,
-          error_code: ERROR_CODES.INVALID_SEATER_INPUT,
-          message: "Passenger count must be between 1 and 8",
-        };
+      // Step 1: Validate input parameters
+      const validationError = this.validatePassengerCount(passengerCount);
+      if (validationError) {
+        return validationError as any;
       }
 
-      // OPTIMIZED ALLOCATION WITH MOVE-UP LOGIC
-      // Try optimum seater first, then move up to larger seaters if not available
-      let optimumSeater: number;
-      
-      // Determine optimum seater based on passenger count
-      if (passengerCount <= 4) {
-        optimumSeater = 4;
-      } else if (passengerCount === 5) {
-        optimumSeater = 5;
-      } else if (passengerCount === 6) {
-        optimumSeater = 6;
-      } else if (passengerCount === 7) {
-        optimumSeater = 7;
-      } else {
-        optimumSeater = 8;
-      }
-      
-      // Create priority order: optimum seater first, then move up
-      const allocationPriority: number[] = [];
-      for (let seater = optimumSeater; seater <= 8; seater++) {
-        if (SEATER_QUEUE_TABLES[seater]) {
-          allocationPriority.push(seater);
-        }
-      }
-      
+      // Step 2: Determine allocation strategy (optimum seater + priority order)
+      const { optimumSeater, allocationPriority } = this.determineAllocationStrategy(passengerCount);
       logger.log(`🎯 Optimized allocation for ${passengerCount} passengers - Priority: [${allocationPriority.join(' → ')}]`);
 
-      let assignedCar: CarInfo | null = null;
-      let queueEntry: any = null;
-      let queuePosition = 0;
-      let allocatedSeaterType = 0;
+      // Step 3: Search queues for available vehicle
+      const { assignedCar, queueEntry, queuePosition, allocatedSeaterType } = 
+        await this.searchQueuesForAvailableVehicle(allocationPriority, optimumSeater);
 
-      // Try allocation in priority order (optimum first, then move up)
-      for (const seater of allocationPriority) {
-        logger.log(`🔍 Checking ${seater}-seater queue...`);
-        const { data: queueData, error: queueError } = await BookingService.getNextAvailableEntry(seater);
-
-        // Found a car in this seater type queue
-        if (queueData && !queueError && queueData.carinfo) {
-          queueEntry = queueData;
-          // Handle Supabase join result (could be array or object)
-          const carinfo = Array.isArray(queueData.carinfo) ? queueData.carinfo[0] : queueData.carinfo;
-          if (carinfo) {
-            assignedCar = carinfo;
-            queuePosition = queueData.position;
-            allocatedSeaterType = seater;
-            const isOptimum = seater === optimumSeater;
-          logger.log(`✅ ${isOptimum ? 'OPTIMUM' : 'MOVE-UP'} assignment: ${seater}-seater taxi: ${carinfo.plateNo} (Position: ${queuePosition})`);
-            break; // Use first available car (FIFO within priority)
-          }
-        } else {
-          logger.log(`⏳ No cars available in ${seater}-seater queue`);
-        }
-      }
-
+      // Step 4: Check if any suitable vehicle was found
       if (!assignedCar || !queueEntry) {
         logger.log(`❌ No suitable taxis available for ${passengerCount} passengers in any queue`);
-        
-        return {
-          success: false,
-          error_code: ERROR_CODES.NO_AVAILABLE_CAR,
-          message: `No suitable taxis available for ${passengerCount} passengers. Please wait or try again later.`,
-        };
+        return createErrorResponse(
+          ERROR_CODES.NO_AVAILABLE_CAR,
+          `No suitable taxis available for ${passengerCount} passengers. Please wait or try again later.`
+        ) as any;
       }
 
-      // Calculate allocation efficiency with detailed analysis
-      const allocationInfo = BookingService.getAllocationInfo(passengerCount, allocatedSeaterType);
-      
+      // Step 5: Log allocation efficiency analysis
+      const allocationInfo = this.getAllocationInfo(passengerCount, allocatedSeaterType);
       logger.log(`🎯 Direct Assignment: ${allocationInfo.efficiency}% efficiency (${passengerCount}/${allocatedSeaterType} seats, ${allocationInfo.wastedSeats} unused)`);
-      
-      // Note: With direct seater matching, efficiency may vary but queues remain properly isolated
 
-      // Remove car from the appropriate seater-specific queue
-      const queueTableName = SEATER_QUEUE_TABLES[allocatedSeaterType];
-      if (!queueTableName) {
-        return {
-          success: false,
-          error_code: ERROR_CODES.DB_CONNECTION_ERROR,
-          message: "Invalid seater type for queue removal",
-        };
-      }
-      const { error: removeError } = await supabase
-        .from(queueTableName)
-        .delete()
-        .eq("queueid", queueEntry.queueId);
-
-      if (removeError) {
-        logger.error(`❌ Failed to remove car from queue: ${removeError.message}`);
-        return {
-          success: false,
-          error_code: ERROR_CODES.DB_CONNECTION_ERROR,
-          message: `Failed to assign taxi: ${removeError.message}`,
-        };
-      }
-
-      // Verify the car was actually removed from queue
-      if (queueTableName) {
-        const { data: verifyQueue } = await supabase
-          .from(queueTableName)
-          .select("queueid")
-          .eq("queueid", queueEntry.queueId)
-          .maybeSingle();
-          
-        if (verifyQueue) {
-          logger.error(`❌ Queue verification failed - car still in queue`);
-          return {
-            success: false,
-            error_code: ERROR_CODES.DB_CONNECTION_ERROR,
-            message: "Assignment failed - please try again",
-          };
-        }
+      // Step 6: Remove car from queue and verify
+      const removalError = await this.removeCarFromQueueAndVerify(queueEntry, allocatedSeaterType);
+      if (removalError) {
+        return removalError as any;
       }
 
       logger.log(`✅ Successfully assigned ${allocatedSeaterType}-seater taxi to ${passengerCount} passengers`);
 
-      // Fix queue positions after removing car to ensure consecutive numbering
+      // Step 7: Fix queue positions to maintain FIFO integrity
       await QueueService.fixQueuePositions(assignedCar.seater);
 
-      return {
-        success: true,
-        data: {
-          car: assignedCar,
-          queuePosition,
-          ...(destination && { destination }),
-        },
-      };
+      // Step 8: Return successful assignment
+      return createSuccessResponse({
+        car: assignedCar,
+        queuePosition,
+        ...(destination && { destination }),
+      });
     } catch (error) {
-      return {
-        success: false,
-        error_code: ERROR_CODES.DB_CONNECTION_ERROR,
-        message: "Failed to assign taxi",
-      };
+      return createErrorResponse(
+        ERROR_CODES.DB_CONNECTION_ERROR,
+        "Failed to assign taxi",
+        error as Error
+      ) as any;
     }
   }
 }

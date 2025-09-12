@@ -68,9 +68,85 @@ export interface QueuePalStaff {
 
 // Auth state management
 /**
- * Authentication and Authorization Service
- * Manages lightweight local sessions via localStorage and verifies QueuePal credentials via Supabase.
- * SECURITY: Admin hard-coded credentials are for development/demo only. Do NOT use in production.
+ * Authentication and Authorization Service - Secure multi-role access control for TaxiTub
+ * 
+ * This service provides comprehensive authentication and authorization capabilities with:
+ * - **Multi-Role Support**: Admin and QueuePal user types with different permissions
+ * - **Secure Authentication**: Database-backed credential verification with fallback mechanisms
+ * - **Session Management**: Lightweight localStorage-based session persistence
+ * - **Role-Based Access**: Route and feature access control based on user roles
+ * 
+ * ## Security Architecture:
+ * 
+ * ### 🔐 Authentication Flow:
+ * ```
+ * User Login → Credential Validation → Database Verification → Session Creation
+ *      │              │                    │                  │
+ *   Username/      Admin Table OR       Password         localStorage
+ *   Password       QueuePal Table       Verification     Session Storage
+ * ```
+ * 
+ * ### 👥 User Roles & Permissions:
+ * 
+ * **Admin Role:**
+ * - Full system access and management capabilities
+ * - Car fleet management (CRUD operations)
+ * - QueuePal staff management
+ * - System monitoring and analytics
+ * - Database maintenance operations
+ * 
+ * **QueuePal Role:**
+ * - Queue management operations
+ * - Add cars to seater-specific queues
+ * - Monitor real-time queue status
+ * - Limited to operational tasks only
+ * 
+ * ### ⚠️ Security Considerations:
+ * 
+ * **Current Implementation (MVP):**
+ * - Plain text password comparison for simplicity
+ * - localStorage session storage for development
+ * - Fallback authentication for missing database functions
+ * 
+ * **Production Recommendations:**
+ * - Implement bcrypt password hashing
+ * - Add session timeout mechanisms
+ * - Use secure HTTP-only cookies instead of localStorage
+ * - Add rate limiting for login attempts
+ * - Implement proper audit logging
+ * 
+ * ### 📋 Session Management:
+ * - Sessions stored in localStorage for persistence across browser sessions
+ * - Automatic session validation on app initialization
+ * - Clean logout process that maintains "Remember Me" preferences
+ * - Date field rehydration for proper timestamp handling
+ * 
+ * @example
+ * ```typescript
+ * // Admin login
+ * const adminLogin = await AuthService.login({
+ *   username: "admin",
+ *   password: "admin@123"
+ * });
+ * 
+ * // QueuePal login
+ * const queuePalLogin = await AuthService.login({
+ *   username: "queuepal1", 
+ *   password: "queuepal123"
+ * });
+ * 
+ * // Check permissions
+ * if (AuthService.hasRole("Admin")) {
+ *   // Admin-only operations
+ * }
+ * 
+ * // Route access control
+ * const canAccess = AuthService.canAccessRoute("Admin");
+ * ```
+ * 
+ * @version 0.1.0
+ * @since 2025-09-06
+ * @security This is an MVP implementation. Enhance security for production use.
  */
 export class AuthService {
   // Admin credentials are now stored securely in the database with bcrypt hashing
@@ -79,12 +155,73 @@ export class AuthService {
   
   // Login for Admin or QueuePal
   /**
-   * Authenticate an Admin or QueuePal user.
-   * - Admin: Validates against in-memory credentials (dev-only)
-   * - QueuePal: Validates active staff record in Supabase and updates last_login
-   * Persists session in localStorage upon success.
-   * @param credentials - Username and password
-   * @returns ApiResponse<User>
+   * Authenticates users with dual-path validation for Admin and QueuePal roles
+   * 
+   * **Authentication Strategy:**
+   * 1. **Admin Authentication**: Checks admin table with password verification
+   * 2. **Fallback Admin**: Uses hard-coded credentials if database unavailable
+   * 3. **QueuePal Authentication**: Validates against queuepal_staff table
+   * 4. **Session Creation**: Stores user session in localStorage on success
+   * 
+   * **Security Features:**
+   * - Active status verification (prevents suspended user login)
+   * - Last login timestamp tracking
+   * - Comprehensive error handling with user-friendly messages
+   * - Session persistence with proper data type handling
+   * 
+   * **Error Scenarios:**
+   * - Invalid username/password combination
+   * - Suspended or inactive user accounts
+   * - Database connection failures
+   * - Missing database tables (development setup)
+   * 
+   * @param {LoginCredentials} credentials - User login credentials
+   * @param {string} credentials.username - Username for authentication
+   * @param {string} credentials.password - Plain text password (MVP implementation)
+   * 
+   * @returns {Promise<ApiResponse<User>>} Authentication result containing:
+   *   - **Success**: User object with role, permissions, and session data
+   *   - **Failure**: Error code and user-friendly error message
+   * 
+   * @throws {ERROR_CODES.UNAUTHORIZED_ACCESS} Invalid credentials or inactive account
+   * @throws {ERROR_CODES.DB_CONNECTION_ERROR} Database connection or query failure
+   * 
+   * @example
+   * ```typescript
+   * // Admin login
+   * const result = await AuthService.login({
+   *   username: "admin",
+   *   password: "admin@123"
+   * });
+   * 
+   * if (result.success) {
+   *   console.log(`Welcome ${result.data.name}! Role: ${result.data.role}`);
+   *   // User is now authenticated and session is stored
+   * } else {
+   *   console.error(`Login failed: ${result.message}`);
+   * }
+   * 
+   * // QueuePal login with error handling
+   * try {
+   *   const queuePalResult = await AuthService.login({
+   *     username: "queuepal1",
+   *     password: "temp123"
+   *   });
+   *   
+   *   if (queuePalResult.success) {
+   *     // Redirect to QueuePal dashboard
+   *     window.location.href = "/queuepal";
+   *   }
+   * } catch (error) {
+   *   // Handle network or system errors
+   * }
+   * ```
+   * 
+   * @security MVP Implementation - Consider implementing:
+   *   - Password hashing with bcrypt
+   *   - Rate limiting for failed attempts
+   *   - Account lockout mechanisms
+   *   - Session timeout handling
    */
   static async login(credentials: LoginCredentials): Promise<ApiResponse<User>> {
     try {
