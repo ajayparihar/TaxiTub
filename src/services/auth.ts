@@ -333,8 +333,14 @@ export class AuthService {
   /**
    * Fallback admin authentication - DISABLED for security
    * All authentication must go through the database
+   * 
+   * @param _credentials - Login credentials (unused, kept for compatibility)
+   * @returns Promise resolving to authentication failure response
    */
-  private static async fallbackAdminAuth(credentials: LoginCredentials): Promise<ApiResponse<User>> {
+  private static async fallbackAdminAuth(_credentials: LoginCredentials): Promise<ApiResponse<User>> {
+    // Note: Parameter prefixed with underscore to indicate intentionally unused
+    // This maintains the method signature while clearly indicating the parameter is not used
+    
     logger.error("❌ Fallback admin authentication is disabled for security reasons");
     logger.error("ℹ️  Please ensure the admin table exists in your database");
     
