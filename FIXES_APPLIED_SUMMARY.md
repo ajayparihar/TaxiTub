@@ -163,7 +163,7 @@ npx tsx scripts/verify-all-fixes.ts
 1. ✅ **Completed:** Update all dependencies to secure versions
 2. ✅ **Completed:** Implement password hashing
 3. 📋 **Pending:** Run database migration script
-4. 🔄 **Todo:** Change default admin password from `admin@123`
+4. 🔄 **Todo:** Set up secure admin password using secure-setup.js
 
 ### **Short Term (1-2 weeks):**
 1. Add comprehensive test coverage for new password security

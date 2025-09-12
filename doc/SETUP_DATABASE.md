@@ -35,17 +35,16 @@ CREATE TABLE IF NOT EXISTS queuepal_staff (
 CREATE INDEX IF NOT EXISTS idx_queuepal_staff_username ON queuepal_staff(username);
 CREATE INDEX IF NOT EXISTS idx_queuepal_staff_active ON queuepal_staff(is_active);
 
--- Insert sample staff for testing
-INSERT INTO queuepal_staff (username, name, contact, password, created_by)
-VALUES 
-    ('staff01', 'Sample Staff', '+91-98765-43210', 'password123', 'admin'),
-    ('testuser', NULL, NULL, 'test123', 'admin')
-ON CONFLICT (username) DO NOTHING;
+-- NOTE: Do not insert users with hardcoded passwords
+-- Use the secure-setup.js script instead:
+-- node scripts/secure-setup.js --run-secure-setup
+-- 
+-- This will create users with properly hashed passwords
 ```
 
 ## 🧪 **Test After Setup:**
 1. **Refresh your app** after running the SQL
-2. **Login as admin** (admin / admin@1234)
+2. **Login as admin** (use secure-setup.js to create admin credentials)
 3. **Go to Staff tab** - should load without errors
 4. **Try adding a new staff member**
 5. **Test staff login** with the sample credentials

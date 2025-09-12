@@ -331,59 +331,17 @@ export class AuthService {
   }
 
   /**
-   * Fallback admin authentication when RPC function is not available
-   * Uses hard-coded credentials for development/demo purposes
-   * In production, this should be replaced with proper database authentication
+   * Fallback admin authentication - DISABLED for security
+   * All authentication must go through the database
    */
   private static async fallbackAdminAuth(credentials: LoginCredentials): Promise<ApiResponse<User>> {
-    // Hard-coded admin credentials for fallback authentication (matches your database)
-    const validAdmins = [
-      { username: "admin", password: "admin@123", name: "System Administrator" }
-    ];
+    logger.error("❌ Fallback admin authentication is disabled for security reasons");
+    logger.error("ℹ️  Please ensure the admin table exists in your database");
     
-    logger.warn("🔄 Using fallback admin authentication - direct database query failed");
-
-    const admin = validAdmins.find(a => 
-      a.username === credentials.username && a.password === credentials.password
-    );
-
-    if (!admin) {
-      return {
-        success: false,
-        error_code: ERROR_CODES.UNAUTHORIZED_ACCESS,
-        message: "Invalid admin credentials"
-      };
-    }
-
-    const adminUser: User = {
-      id: `admin-${admin.username}`,
-      username: admin.username,
-      role: "Admin",
-      name: admin.name,
-      isActive: true,
-      createdAt: new Date(),
-      lastLogin: new Date()
-    };
-
-    // Store in localStorage
-    this.setCurrentUser(adminUser);
-
-    logger.warn("⚠️ Using fallback admin authentication. Please set up the admin table and verify_admin_password function in production.");
-    
-    // Show user-friendly notification about fallback auth
-    if (typeof window !== 'undefined') {
-      const event = new CustomEvent('show-fallback-auth-warning', {
-        detail: {
-          type: 'admin',
-          message: 'Using fallback authentication. Run the database setup script for full functionality.'
-        }
-      });
-      window.dispatchEvent(event);
-    }
-
     return {
-      success: true,
-      data: adminUser
+      success: false,
+      error_code: ERROR_CODES.DB_CONNECTION_ERROR,
+      message: "Database authentication required. Please ensure the admin table is properly set up."
     };
   }
 }

@@ -81,9 +81,10 @@ CREATE TABLE admin (
 );
 ```
 
-**Default Admin Users**:
-- `admin` / `admin@123` (System Administrator)
-- `dev` / `dev@123` (Developer)
+**Security Note**:
+- ⚠️ **NO DEFAULT PASSWORDS** - Use secure-setup.js to create admin users
+- ✅ All passwords are securely generated and bcrypt hashed
+- ✅ Use environment variables for password management
 
 **Key Features**:
 - ✅ Bcrypt password hashing for security

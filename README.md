@@ -79,7 +79,7 @@ npm --version   # Should show v8.0.0+
    - Name: TaxiTub
    - Strong password for database
    - Select closest region to your users
-3. **Database Setup**: Go to SQL Editor and run the schema from `supabase-setup.sql`
+3. **Database Setup**: Use the secure setup script to create your database structure
 4. **Get API Keys**: Navigate to Settings → API and copy:
    - Project URL
    - Public anon key

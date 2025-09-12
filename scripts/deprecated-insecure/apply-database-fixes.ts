@@ -1,20 +1,20 @@
 /**
- * Database Schema Fix Application Script
- * Applies the schema fixes to resolve issues identified in testing
+ * DEPRECATED - SECURITY RISK - Contains hardcoded passwords
+ * This script contains hardcoded passwords and should NOT be used in production
+ * Use scripts/secure-setup.js instead for secure password management
+ * 
+ * @deprecated Use secure-setup.js for production deployments
  */
 
 import { createClient } from "@supabase/supabase-js";
 import * as bcrypt from 'bcryptjs';
 import * as dotenv from 'dotenv';
-import { readFileSync } from 'fs';
-import { join } from 'path';
-
 // Load environment variables
 dotenv.config();
 
 // Supabase configuration
-const supabaseUrl = process.env.VITE_SUPABASE_URL!;
-const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY!;
+const supabaseUrl = process.env['VITE_SUPABASE_URL']!;
+const supabaseAnonKey = process.env['VITE_SUPABASE_ANON_KEY']!;
 
 if (!supabaseUrl || !supabaseAnonKey || supabaseUrl.includes('placeholder')) {
   console.error('❌ Error: Please set valid VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env file');
@@ -51,7 +51,7 @@ async function applyDatabaseFixes() {
 
     // 2. Check admin table exists and has proper structure
     console.log('\n👤 Step 2: Checking admin table...');
-    const { data: adminData, error: adminError } = await supabase
+    const { error: adminError } = await supabase
       .from('admin')
       .select('admin_id, username, password')
       .limit(1);
