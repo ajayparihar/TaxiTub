@@ -17,6 +17,7 @@ import {
 import { CAR_INFO_COLUMNS, normalizeQueueRowsToView } from "./apiUtils";
 import { SEATER_TYPES } from "../constants";
 import { logger } from "../utils/logger";
+import { TripService } from "./tripService";
 
 /**
  * Car Management Service - Handles all car-related database operations
@@ -1049,6 +1050,139 @@ export class QueueService {
       };
     }
   }
+
+  /**
+   * Adds multiple cars to queue in bulk operation
+   * @param carsToQueue - Array of cars to add with seater and priority info
+   * @returns Promise resolving to bulk queue operation result
+   */
+  static async addCarsToQueueBulk(
+    carsToQueue: Array<{ carId: string; seater: number; priority?: string }>
+  ): Promise<ApiResponse<{ queued: number }>> {
+    try {
+      let totalQueued = 0;
+
+      // Group cars by seater type for efficient processing
+      const carsBySeater = carsToQueue.reduce((acc, car) => {
+        if (!acc[car.seater]) acc[car.seater] = [];
+        acc[car.seater].push(car.carId);
+        return acc;
+      }, {} as Record<number, string[]>);
+
+      // Process each seater group
+      for (const [seater, carIds] of Object.entries(carsBySeater)) {
+        const seaterNum = parseInt(seater);
+        for (const carId of carIds) {
+          const result = await this.addCarToQueue({ carId });
+          if (result.success) {
+            totalQueued++;
+          }
+        }
+      }
+
+      return {
+        success: true,
+        data: { queued: totalQueued }
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error_code: ERROR_CODES.DB_CONNECTION_ERROR,
+        message: "Failed to add cars to queue in bulk",
+      };
+    }
+  }
+
+  /**
+   * Removes a specific car from its queue
+   * @param carId - Car to remove from queue
+   * @returns Promise resolving to removal result
+   */
+  static async removeCarFromQueue(carId: string): Promise<ApiResponse<{ removed: boolean }>> {
+    try {
+      // First, find which queue table the car is in
+      const seaters = [4, 5, 6, 7, 8]; // Standard seater types
+      let removed = false;
+
+      for (const seater of seaters) {
+        const tableName = SEATER_QUEUE_TABLES[seater];
+        if (!tableName) continue;
+
+        const { data, error } = await supabase
+          .from(tableName)
+          .delete()
+          .eq("carid", carId)
+          .select("queueid");
+
+        if (!error && data && data.length > 0) {
+          removed = true;
+          // Fix queue positions after removal
+          await this.fixQueuePositions(seater);
+          break;
+        }
+      }
+
+      return {
+        success: true,
+        data: { removed }
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error_code: ERROR_CODES.DB_CONNECTION_ERROR,
+        message: "Failed to remove car from queue",
+      };
+    }
+  }
+
+  /**
+   * Gets queue status with length and metadata
+   * @param seater - Seater type to check
+   * @returns Promise resolving to queue status information
+   */
+  static async getQueueStatus(
+    seater: number
+  ): Promise<ApiResponse<{ queueLength: number; nextPosition: number }>> {
+    try {
+      const tn = this.getTableNameOrError(seater);
+      if (!tn.ok) {
+        return tn.response;
+      }
+      const tableName = tn.tableName;
+
+      const { data, error } = await supabase
+        .from(tableName)
+        .select("position")
+        .order("position");
+
+      if (error) {
+        return {
+          success: false,
+          error_code: ERROR_CODES.DB_CONNECTION_ERROR,
+          message: error.message,
+        };
+      }
+
+      const queueLength = (data || []).length;
+      const nextPosition = queueLength > 0 
+        ? Math.max(...(data || []).map((item: any) => item.position)) + 1 
+        : 1;
+
+      return {
+        success: true,
+        data: {
+          queueLength,
+          nextPosition
+        }
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error_code: ERROR_CODES.DB_CONNECTION_ERROR,
+        message: "Failed to get queue status",
+      };
+    }
+  }
 }
 
 /**
@@ -1404,7 +1538,121 @@ export class BookingService {
       };
     }
   }
+
+  /**
+   * Creates a new booking request
+   * @param bookingData - Booking details including passenger count and destination
+   * @returns Promise resolving to booking confirmation
+   */
+  static async createBooking(
+    bookingData: { passengerCount: number; destination: string; priority?: string }
+  ): Promise<ApiResponse<{ 
+    bookingId: string; 
+    status: string;
+    assignedCarId?: string;
+    queuePosition?: number;
+  }>> {
+    try {
+      // Attempt to assign taxi immediately
+      const assignmentResult = await this.assignTaxi(bookingData.passengerCount, bookingData.destination);
+
+      if (assignmentResult.success) {
+        // Car assigned successfully
+        return {
+          success: true,
+          data: {
+            bookingId: `booking-${Date.now()}`,
+            status: 'Assigned',
+            assignedCarId: assignmentResult.data?.car.carId,
+            queuePosition: assignmentResult.data?.queuePosition
+          }
+        };
+      } else {
+        // No car available, create pending booking
+        return {
+          success: false,
+          error_code: assignmentResult.error_code || ERROR_CODES.NO_AVAILABLE_CAR,
+          message: assignmentResult.message || "No cars available"
+        };
+      }
+    } catch (error: any) {
+      return {
+        success: false,
+        error_code: ERROR_CODES.DB_CONNECTION_ERROR,
+        message: "Failed to create booking",
+      };
+    }
+  }
+
+  /**
+   * Processes multiple bookings in bulk
+   * @param bookings - Array of booking requests to process
+   * @returns Promise resolving to bulk processing results
+   */
+  static async processBulkBookings(
+    bookings: Array<{ 
+      bookingId: string;
+      passengerCount: number;
+      destination: string;
+      priority?: string;
+      timestamp?: string;
+    }>
+  ): Promise<ApiResponse<{ 
+    processed: number;
+    successful: number;
+    failed: number;
+    highPriorityProcessed: number;
+  }>> {
+    try {
+      let successful = 0;
+      let failed = 0;
+      let highPriorityProcessed = 0;
+
+      // Sort bookings by priority and timestamp
+      const sortedBookings = bookings.sort((a, b) => {
+        if (a.priority === 'high' && b.priority !== 'high') return -1;
+        if (b.priority === 'high' && a.priority !== 'high') return 1;
+        return new Date(a.timestamp || 0).getTime() - new Date(b.timestamp || 0).getTime();
+      });
+
+      // Process each booking
+      for (const booking of sortedBookings) {
+        try {
+          const result = await this.createBooking(booking);
+          if (result.success) {
+            successful++;
+            if (booking.priority === 'high') {
+              highPriorityProcessed++;
+            }
+          } else {
+            failed++;
+          }
+        } catch {
+          failed++;
+        }
+      }
+
+      return {
+        success: true,
+        data: {
+          processed: bookings.length,
+          successful,
+          failed,
+          highPriorityProcessed
+        }
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error_code: ERROR_CODES.DB_CONNECTION_ERROR,
+        message: "Failed to process bulk bookings",
+      };
+    }
+  }
 }
+
+// Export TripService for external use
+export { TripService };
 
 /**
  * QueuePal Management Service

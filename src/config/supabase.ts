@@ -100,6 +100,7 @@ export const TABLES = {
   QUEUE_8SEATER: "queue_8seater",        // 8-seater taxi queue with FIFO positioning
   QUEUE_PAL: "queuepal",                 // Queue manager staff records
   ADMIN: "admin",                        // Admin authentication table
+  TRIP: "trip",                          // Trip records and lifecycle management
 } as const;
 
 /**

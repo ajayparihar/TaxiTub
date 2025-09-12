@@ -5,25 +5,28 @@
 
 import { TripService, QueueService } from '../src/services/api';
 
-// Mock Supabase
+// Mock Supabase with comprehensive method chaining support
 jest.mock('../src/config/supabase', () => {
+  const createMockQuery = () => ({
+    select: jest.fn(() => createMockQuery()),
+    eq: jest.fn(() => createMockQuery()),
+    order: jest.fn(() => createMockQuery()),
+    limit: jest.fn(() => createMockQuery()),
+    range: jest.fn(() => createMockQuery()),
+    single: jest.fn(() => ({ data: null, error: null })),
+    data: [],
+    error: null,
+    // Add mock methods that return resolved values
+    mockResolvedValue: jest.fn(),
+    mockResolvedValueOnce: jest.fn(),
+    mockRejectedValue: jest.fn(),
+    mockRejectedValueOnce: jest.fn(),
+    mockImplementation: jest.fn()
+  });
+
   const mockSupabase = {
     from: jest.fn(() => ({
-      select: jest.fn(() => ({
-        eq: jest.fn(() => ({
-          order: jest.fn(() => ({
-            limit: jest.fn(() => ({ data: [], error: null })),
-            data: [],
-            error: null
-          })),
-          single: jest.fn(() => ({ data: null, error: null })),
-          data: [],
-          error: null
-        })),
-        order: jest.fn(() => ({ data: [], error: null })),
-        data: [],
-        error: null
-      })),
+      select: jest.fn(() => createMockQuery()),
       insert: jest.fn(() => ({
         select: jest.fn(() => ({
           single: jest.fn(() => ({ data: null, error: null }))
