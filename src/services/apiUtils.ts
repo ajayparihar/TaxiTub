@@ -363,78 +363,43 @@ export function normalizeQueueRowsToView(rows: any[], seater: number): QueueView
 // ========================================
 
 /**
- * Validates vehicle seater capacity
+ * Consolidated Validation Utilities
  * 
- * Ensures the seater count is within the supported range for the TaxiTub system.
- * The system supports 4-8 seater vehicles for airport taxi services.
+ * All validation functions delegate to the centralized validation module
+ * for consistency and maintainability. These wrapper functions provide
+ * boolean-only responses for backward compatibility with existing APIs.
  * 
+ * @module ValidationWrappers
+ */
+
+/**
+ * Validates vehicle seater capacity (4-8 seater vehicles supported)
  * @param seater - Number of seats in the vehicle
  * @returns true if seater count is valid, false otherwise
- * 
- * @example
- * ```typescript
- * if (!validateSeaterCount(car.seater)) {
- *   return createErrorResponse(
- *     ERROR_CODES.INVALID_SEATER_INPUT,
- *     "Vehicle must have between 4 and 8 seats"
- *   );
- * }
- * ```
  */
-export function validateSeaterCount(seater: number): boolean {
-  // Delegate to the richer validator and return boolean for backward compatibility
-  return validateSeaterVR(seater).isValid;
-}
+export const validateSeaterCount = (seater: number): boolean => 
+  validateSeaterVR(seater).isValid;
 
 /**
- * Validates passenger count for taxi booking
- * 
- * Ensures the passenger count is within reasonable limits for airport taxi service.
- * Maximum of 8 passengers is based on largest vehicle capacity minus driver.
- * 
+ * Validates passenger count for taxi booking (1-8 passengers supported)
  * @param count - Number of passengers requesting taxi service
  * @returns true if passenger count is valid, false otherwise
- * 
- * @example
- * ```typescript
- * if (!validatePassengerCount(booking.passengerCount)) {
- *   return createErrorResponse(
- *     ERROR_CODES.INVALID_SEATER_INPUT,
- *     "Passenger count must be between 1 and 8"
- *   );
- * }
- * ```
  */
-export function validatePassengerCount(count: number): boolean {
-  // Delegate to the richer validator and return boolean for backward compatibility
-  return validatePassengerCountVR(count).isValid;
-}
+export const validatePassengerCount = (count: number): boolean => 
+  validatePassengerCountVR(count).isValid;
 
 /**
- * Validates plate number format
- * 
- * Ensures plate number meets basic formatting requirements.
- * This is a basic validation - more sophisticated regional validation
- * could be added based on specific airport/country requirements.
- * 
+ * Validates plate number format according to system requirements
  * @param plateNo - Vehicle license plate number
  * @returns true if plate number format is valid, false otherwise
  */
-export function validatePlateNumber(plateNo: string): boolean {
-  // Delegate to the centralized validator using shared constants
-  return validatePlateVR(plateNo).isValid;
-}
+export const validatePlateNumber = (plateNo: string): boolean => 
+  validatePlateVR(plateNo).isValid;
 
 /**
- * Validates phone number format
- * 
- * Basic phone number validation for driver contact information.
- * Accepts various international formats and local formats.
- * 
+ * Validates phone number format for driver contact information
  * @param phone - Phone number string
  * @returns true if phone number format appears valid, false otherwise
  */
-export function validatePhoneNumber(phone: string): boolean {
-  // Delegate to the centralized validator using shared constants
-  return validatePhoneVR(phone).isValid;
-}
+export const validatePhoneNumber = (phone: string): boolean => 
+  validatePhoneVR(phone).isValid;

@@ -36,7 +36,7 @@
  * @returns {JSX.Element} The complete application UI with routing and providers
  */
 
-import React from "react";
+import { lazy, useState, Suspense, useEffect } from "react";
 import {
   BrowserRouter as Router,
   Routes,
@@ -60,31 +60,11 @@ import {
  * - Better perceived performance
  * - Automatic code splitting by route
  */
-const AdminDashboard = React.lazy(() => 
-  import("./pages/AdminDashboard")
-    .then(module => ({ default: module.default }))
-);
-
-const QueuePalDashboard = React.lazy(() => 
-  import("./pages/QueuePalDashboard")
-    .then(module => ({ default: module.default }))
-);
-
-const PassengerBooking = React.lazy(() => 
-  import("./pages/PassengerBooking")
-    .then(module => ({ default: module.default }))
-);
-
-const LoginPage = React.lazy(() => 
-  import("./pages/LoginPage")
-    .then(module => ({ default: module.default }))
-);
-
-const LoadingScreenDemo = React.lazy(() => 
-  import("./pages/LoadingScreenDemo")
-    .then(module => ({ default: module.default }))
-);
-
+const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
+const QueuePalDashboard = lazy(() => import("./pages/QueuePalDashboard"));
+const PassengerBooking = lazy(() => import("./pages/PassengerBooking"));
+const LoginPage = lazy(() => import("./pages/LoginPage"));
+const LoadingScreenDemo = lazy(() => import("./pages/LoadingScreenDemo"));
 
 // ========================================
 // COMPONENT IMPORTS
@@ -98,7 +78,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 // Context providers for global state management
-import { ToastProvider } from "./components/Toast";
+import { ToastProvider, useToast } from "./components/Toast";
 import { DialogProvider } from "./components/DialogProvider";
 
 // Accessibility components for WCAG compliance
@@ -107,10 +87,8 @@ import { SkipLink, LiveRegion } from "./components/Accessibility";
 // UI components and utilities
 import { Box, Typography } from "@mui/material";
 import { alpha } from "./theme";
-import { useState, Suspense, useEffect } from "react";
 import { PageLoadingScreen } from "./components/PremiumLoadingScreen";
 import { BaseLayout } from "./ui/Layout";
-import { useToast } from "./components/Toast";
 
 // ========================================
 // MAIN APPLICATION COMPONENT

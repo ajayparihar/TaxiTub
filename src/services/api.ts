@@ -986,6 +986,50 @@ export class QueueService {
  */
 export class BookingService {
   /**
+   * Determines the optimum seater capacity for a given passenger count
+   * 
+   * This function implements the core allocation logic that matches passenger count
+   * to the smallest suitable vehicle seater capacity, optimizing for efficiency
+   * while ensuring all passengers can be accommodated.
+   * 
+   * @param passengerCount - Number of passengers requiring transportation
+   * @returns Optimum seater capacity (4, 5, 6, 7, or 8)
+   * 
+   * @example
+   * ```typescript
+   * const optimum = BookingService.getOptimumSeater(3); // Returns 4
+   * const optimum = BookingService.getOptimumSeater(7); // Returns 7
+   * ```
+   */
+  private static getOptimumSeater(passengerCount: number): number {
+    // Use efficient lookup logic for seater determination
+    return passengerCount <= 4 ? 4 :
+           passengerCount === 5 ? 5 :
+           passengerCount === 6 ? 6 :
+           passengerCount === 7 ? 7 : 8;
+  }
+
+  /**
+   * Creates allocation priority array starting from optimum seater
+   * 
+   * Builds the priority order for vehicle allocation, starting with the optimum
+   * seater and moving up to larger capacities if needed. Only includes seater
+   * types that have configured queue tables.
+   * 
+   * @param optimumSeater - The optimal seater capacity for the passenger count
+   * @returns Array of seater capacities in allocation priority order
+   */
+  private static createAllocationPriority(optimumSeater: number): number[] {
+    const priority: number[] = [];
+    for (let seater = optimumSeater; seater <= 8; seater++) {
+      if (SEATER_QUEUE_TABLES[seater]) {
+        priority.push(seater);
+      }
+    }
+    return priority;
+  }
+
+  /**
    * Helper function to get allocation efficiency information
    * @param passengerCount - Number of passengers
    * @param allocatedSeater - Seater capacity of allocated vehicle
@@ -1066,6 +1110,126 @@ export class BookingService {
     return { data, error };
   }
   /**
+   * Validates passenger count for taxi assignment
+   * @param passengerCount - Number of passengers
+   * @returns ApiResponse error if invalid, null if valid
+   */
+  private static validatePassengerCount(passengerCount: number): ApiResponse<never> | null {
+    if (passengerCount <= 0 || passengerCount > 8) {
+      return {
+        success: false,
+        error_code: ERROR_CODES.INVALID_SEATER_INPUT,
+        message: "Passenger count must be between 1 and 8",
+      };
+    }
+    return null;
+  }
+
+  /**
+   * Attempts to find and allocate a car from the priority queue order
+   * @param allocationPriority - Array of seater types in priority order
+   * @param optimumSeater - The optimal seater capacity for the passenger count
+   * @returns Allocation result with car details or null if no car available
+   */
+  private static async findAvailableCar(
+    allocationPriority: number[],
+    optimumSeater: number
+  ): Promise<{
+    assignedCar: CarInfo | null;
+    queueEntry: any | null;
+    queuePosition: number;
+    allocatedSeaterType: number;
+  }> {
+    let assignedCar: CarInfo | null = null;
+    let queueEntry: any = null;
+    let queuePosition = 0;
+    let allocatedSeaterType = 0;
+
+    // Try allocation in priority order (optimum first, then move up)
+    for (const seater of allocationPriority) {
+      logger.log(`🔍 Checking ${seater}-seater queue...`);
+      const { data: queueData, error: queueError } = await BookingService.getNextAvailableEntry(seater);
+
+      // Found a car in this seater type queue
+      if (queueData && !queueError && queueData.carinfo) {
+        queueEntry = queueData;
+        // Handle Supabase join result (could be array or object)
+        const carinfo = Array.isArray(queueData.carinfo) ? queueData.carinfo[0] : queueData.carinfo;
+        if (carinfo) {
+          assignedCar = carinfo;
+          queuePosition = queueData.position;
+          allocatedSeaterType = seater;
+          const isOptimum = seater === optimumSeater;
+          logger.log(`✅ ${isOptimum ? 'OPTIMUM' : 'MOVE-UP'} assignment: ${seater}-seater taxi: ${carinfo.plateNo} (Position: ${queuePosition})`);
+          break; // Use first available car (FIFO within priority)
+        }
+      } else {
+        logger.log(`⏳ No cars available in ${seater}-seater queue`);
+      }
+    }
+
+    return {
+      assignedCar,
+      queueEntry,
+      queuePosition,
+      allocatedSeaterType,
+    };
+  }
+
+  /**
+   * Removes assigned car from queue and verifies removal
+   * @param queueEntry - Queue entry to remove
+   * @param allocatedSeaterType - Seater type of the allocated car
+   * @returns ApiResponse error if removal fails, null if successful
+   */
+  private static async removeCarFromQueue(
+    queueEntry: any,
+    allocatedSeaterType: number
+  ): Promise<ApiResponse<never> | null> {
+    const queueTableName = SEATER_QUEUE_TABLES[allocatedSeaterType];
+    if (!queueTableName) {
+      return {
+        success: false,
+        error_code: ERROR_CODES.DB_CONNECTION_ERROR,
+        message: "Invalid seater type for queue removal",
+      };
+    }
+
+    // Remove car from queue
+    const { error: removeError } = await supabase
+      .from(queueTableName)
+      .delete()
+      .eq("queueid", queueEntry.queueId);
+
+    if (removeError) {
+      logger.error(`❌ Failed to remove car from queue: ${removeError.message}`);
+      return {
+        success: false,
+        error_code: ERROR_CODES.DB_CONNECTION_ERROR,
+        message: `Failed to assign taxi: ${removeError.message}`,
+      };
+    }
+
+    // Verify removal
+    const { data: verifyQueue } = await supabase
+      .from(queueTableName)
+      .select("queueid")
+      .eq("queueid", queueEntry.queueId)
+      .maybeSingle();
+      
+    if (verifyQueue) {
+      logger.error(`❌ Queue verification failed - car still in queue`);
+      return {
+        success: false,
+        error_code: ERROR_CODES.DB_CONNECTION_ERROR,
+        message: "Assignment failed - please try again",
+      };
+    }
+
+    return null; // Success
+  }
+
+  /**
    * Assigns the next available taxi from queue based on passenger count using optimized allocation
    * Removes assigned car from queue and returns car details
    * @param passengerCount - Number of passengers requiring transportation
@@ -1077,73 +1241,23 @@ export class BookingService {
     destination?: string
   ): Promise<ApiResponse<{ car: CarInfo; queuePosition: number; destination?: string }>> {
     try {
-      // Validate passenger count against system constraints
-      if (passengerCount <= 0 || passengerCount > 8) {
-        return {
-          success: false,
-          error_code: ERROR_CODES.INVALID_SEATER_INPUT,
-          message: "Passenger count must be between 1 and 8",
-        };
+      // Step 1: Validate input
+      const validationError = this.validatePassengerCount(passengerCount);
+      if (validationError) {
+        return validationError;
       }
 
-      // OPTIMIZED ALLOCATION WITH MOVE-UP LOGIC
-      // Try optimum seater first, then move up to larger seaters if not available
-      let optimumSeater: number;
-      
-      // Determine optimum seater based on passenger count
-      if (passengerCount <= 4) {
-        optimumSeater = 4;
-      } else if (passengerCount === 5) {
-        optimumSeater = 5;
-      } else if (passengerCount === 6) {
-        optimumSeater = 6;
-      } else if (passengerCount === 7) {
-        optimumSeater = 7;
-      } else {
-        optimumSeater = 8;
-      }
-      
-      // Create priority order: optimum seater first, then move up
-      const allocationPriority: number[] = [];
-      for (let seater = optimumSeater; seater <= 8; seater++) {
-        if (SEATER_QUEUE_TABLES[seater]) {
-          allocationPriority.push(seater);
-        }
-      }
+      // Step 2: Calculate allocation strategy
+      const optimumSeater = this.getOptimumSeater(passengerCount);
+      const allocationPriority = this.createAllocationPriority(optimumSeater);
       
       logger.log(`🎯 Optimized allocation for ${passengerCount} passengers - Priority: [${allocationPriority.join(' → ')}]`);
 
-      let assignedCar: CarInfo | null = null;
-      let queueEntry: any = null;
-      let queuePosition = 0;
-      let allocatedSeaterType = 0;
-
-      // Try allocation in priority order (optimum first, then move up)
-      for (const seater of allocationPriority) {
-        logger.log(`🔍 Checking ${seater}-seater queue...`);
-        const { data: queueData, error: queueError } = await BookingService.getNextAvailableEntry(seater);
-
-        // Found a car in this seater type queue
-        if (queueData && !queueError && queueData.carinfo) {
-          queueEntry = queueData;
-          // Handle Supabase join result (could be array or object)
-          const carinfo = Array.isArray(queueData.carinfo) ? queueData.carinfo[0] : queueData.carinfo;
-          if (carinfo) {
-            assignedCar = carinfo;
-            queuePosition = queueData.position;
-            allocatedSeaterType = seater;
-            const isOptimum = seater === optimumSeater;
-          logger.log(`✅ ${isOptimum ? 'OPTIMUM' : 'MOVE-UP'} assignment: ${seater}-seater taxi: ${carinfo.plateNo} (Position: ${queuePosition})`);
-            break; // Use first available car (FIFO within priority)
-          }
-        } else {
-          logger.log(`⏳ No cars available in ${seater}-seater queue`);
-        }
-      }
-
-      if (!assignedCar || !queueEntry) {
+      // Step 3: Find available car
+      const allocation = await this.findAvailableCar(allocationPriority, optimumSeater);
+      
+      if (!allocation.assignedCar || !allocation.queueEntry) {
         logger.log(`❌ No suitable taxis available for ${passengerCount} passengers in any queue`);
-        
         return {
           success: false,
           error_code: ERROR_CODES.NO_AVAILABLE_CAR,
@@ -1151,64 +1265,25 @@ export class BookingService {
         };
       }
 
-      // Calculate allocation efficiency with detailed analysis
-      const allocationInfo = BookingService.getAllocationInfo(passengerCount, allocatedSeaterType);
-      
-      logger.log(`🎯 Direct Assignment: ${allocationInfo.efficiency}% efficiency (${passengerCount}/${allocatedSeaterType} seats, ${allocationInfo.wastedSeats} unused)`);
-      
-      // Note: With direct seater matching, efficiency may vary but queues remain properly isolated
+      // Step 4: Log allocation efficiency
+      const allocationInfo = this.getAllocationInfo(passengerCount, allocation.allocatedSeaterType);
+      logger.log(`🎯 Direct Assignment: ${allocationInfo.efficiency}% efficiency (${passengerCount}/${allocation.allocatedSeaterType} seats, ${allocationInfo.wastedSeats} unused)`);
 
-      // Remove car from the appropriate seater-specific queue
-      const queueTableName = SEATER_QUEUE_TABLES[allocatedSeaterType];
-      if (!queueTableName) {
-        return {
-          success: false,
-          error_code: ERROR_CODES.DB_CONNECTION_ERROR,
-          message: "Invalid seater type for queue removal",
-        };
-      }
-      const { error: removeError } = await supabase
-        .from(queueTableName)
-        .delete()
-        .eq("queueid", queueEntry.queueId);
-
-      if (removeError) {
-        logger.error(`❌ Failed to remove car from queue: ${removeError.message}`);
-        return {
-          success: false,
-          error_code: ERROR_CODES.DB_CONNECTION_ERROR,
-          message: `Failed to assign taxi: ${removeError.message}`,
-        };
+      // Step 5: Remove car from queue
+      const removalError = await this.removeCarFromQueue(allocation.queueEntry, allocation.allocatedSeaterType);
+      if (removalError) {
+        return removalError;
       }
 
-      // Verify the car was actually removed from queue
-      if (queueTableName) {
-        const { data: verifyQueue } = await supabase
-          .from(queueTableName)
-          .select("queueid")
-          .eq("queueid", queueEntry.queueId)
-          .maybeSingle();
-          
-        if (verifyQueue) {
-          logger.error(`❌ Queue verification failed - car still in queue`);
-          return {
-            success: false,
-            error_code: ERROR_CODES.DB_CONNECTION_ERROR,
-            message: "Assignment failed - please try again",
-          };
-        }
-      }
-
-      logger.log(`✅ Successfully assigned ${allocatedSeaterType}-seater taxi to ${passengerCount} passengers`);
-
-      // Fix queue positions after removing car to ensure consecutive numbering
-      await QueueService.fixQueuePositions(assignedCar.seater);
+      // Step 6: Post-assignment cleanup
+      logger.log(`✅ Successfully assigned ${allocation.allocatedSeaterType}-seater taxi to ${passengerCount} passengers`);
+      await QueueService.fixQueuePositions(allocation.assignedCar.seater);
 
       return {
         success: true,
         data: {
-          car: assignedCar,
-          queuePosition,
+          car: allocation.assignedCar,
+          queuePosition: allocation.queuePosition,
           ...(destination && { destination }),
         },
       };
